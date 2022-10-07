@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kink.controlplane.fullname" . }}
+  labels:
+    {{- include "kink.controlplane.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.controlplane.service.type }}
+  ports:
+    {{- range $port := list "api" "kubelet-metrics" "etcd-client" "etcd-peer" }}
+    - port: {{ (index $.Values.controlplane.service $port).port }}
+      targetPort: {{ $port }}
+      protocol: TCP
+      name: {{ $port }}
+    {{- end }}
+  selector:
+    {{- include "kink.controlplane.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kink.controlplane.fullname" . }}-headless
+  labels:
+    {{- include "kink.controlplane.labels" . | nindent 4 }}
+spec:
+  clusterIP: "None"
+  type: {{ .Values.controlplane.service.type }}
+  ports:
+    {{- range $port := list "api" "kubelet-metrics" "etcd-client" "etcd-peer" }}
+    - port: {{ (index $.Values.controlplane.service $port).port }}
+      targetPort: {{ $port }}
+      protocol: TCP
+      name: {{ $port }}
+    {{- end }}
+  selector:
+    {{- include "kink.controlplane.selectorLabels" . | nindent 4 }}
+

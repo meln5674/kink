@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kink.worker.fullname" . }}
+  labels:
+    {{- include "kink.worker.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "kink.worker.fullname" . }}
+  labels:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kink.worker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.worker.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kink.worker.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kink.worker.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.worker.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: K3S_TOKEN
+            valueFrom:
+              secretKeyRef:
+                {{- if .Values.token.existingSecret.name }}
+                name: {{ .Values.token.existingSecret.name }}
+                key:  {{ .Values.token.existingSecret.key }}
+                {{- else }}
+                name: {{ include "kink.fullname" . }}
+                key: token
+                {{- end }}
+          args:
+          - agent
+          - --server={{ include "kink.controlplane.url" . }}
+          ports:
+            - name: kubelet-metrics
+              containerPort: 10250
+              protocol: TCP
+            - name: health
+              containerPort: 10248
+              protocol: TCP
+            {{- range .Values.worker.extraPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+              host: 127.0.0.1
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+              host: 127.0.0.1
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+          - name: data
+            mountPath: /var/lib/rancher/k3s
+            subPath: var/lib/rancher/k3s
+          - name: data
+            mountPath: /etc/rancher
+            subPath: etc/rancher
+          - name: kubelet
+            mountPath: /var/lib/kubelet
+            subPath: var/lib/kubelet
+          {{- range .Values.worker.persistence.extraMounts }}
+          - name: data
+            mountPath: /{{ . }}
+            subPath: {{ . | trimPrefix "/" }}
+          {{- end }}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      {{- if not .Values.kubelet.persistence.enabled }}
+      - name: kubelet
+        emptyDir: {}
+      {{- end }}
+      {{- if not .Values.worker.persistence.enabled }}
+      - name: data
+        emptyDir: {}
+      {{- end }}
+  volumeClaimTemplates:
+  {{- if .Values.worker.persistence.enabled }}
+  - metadata:
+      name: data
+    spec:
+      accessModes: {{ .Values.worker.persistence.accessModes | toJson }}
+      {{- with .Values.worker.persistence.storageClassName }}
+      storageClassName: '{{ . }}'
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.worker.persistence.size }}
+  {{- end }}
+  {{- if .Values.kubelet.persistence.enabled }}
+  - metadata:
+      name: kubelet
+    spec:
+      accessModes: {{ .Values.kubelet.persistence.accessModes | toJson }}
+      {{- with .Values.kubelet.persistence.storageClassName }}
+      storageClassName: '{{ . }}'
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.kubelet.persistence.size }}
+  {{- end }}
+
