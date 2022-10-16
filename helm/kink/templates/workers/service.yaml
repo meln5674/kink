@@ -32,6 +32,7 @@ metadata:
 spec:
   clusterIP: "None"
   type: {{ .Values.worker.service.type }}
+  publishNotReadyAddresses: true
   ports:
     {{- range $port := list "kubelet-metrics" }}
     - port: {{ (index $.Values.worker.service $port).port }}

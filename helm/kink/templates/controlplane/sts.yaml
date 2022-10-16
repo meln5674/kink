@@ -6,7 +6,7 @@ metadata:
     {{- include "kink.controlplane.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "kink.controlplane.fullname" . }}
-  labels:
+  podManagementPolicy: "Parallel"
   replicas: {{ .Values.controlplane.replicaCount }}
   selector:
     matchLabels:
@@ -48,6 +48,7 @@ spec:
                 name: {{ include "kink.fullname" . }}
                 key: token
                 {{- end }}
+          {{- if gt .Values.controlplane.replicaCount 1 }}
           command: [sh,-ce]
           args:
           - |
@@ -59,7 +60,10 @@ spec:
               exec k3s server \
                 --data-dir=/var/lib/rancher/k3s \
                 --server={{ include "kink.controlplane.url" . }}
-            fi
+           fi
+          {{- else }}
+          args: [ server, --data-dir=/var/lib/rancher/k3s ]
+          {{- end }}
           ports:
             - name: api
               containerPort: 6443
@@ -73,17 +77,21 @@ spec:
             - name: etcd-peer
               containerPort: 2380
               protocol: TCP
+
           startupProbe:
+            tcpSocket:
+              port: api
+            # TODO: Health checks w/ authentication
             # httpGet:
             #   path: /livez
             #   port: api
             #   scheme: HTTPS
-            exec:
-              command:
-              - k3s
-              - kubectl
-              - --kubeconfig=/etc/rancher/k3s/k3s.yaml
-              - version
+            # exec:
+            #   command:
+            #   - k3s
+            #   - kubectl
+            #   - --kubeconfig=/etc/rancher/k3s/k3s.yaml
+            #   - version
             failureThreshold: 20
             periodSeconds: 15
           livenessProbe:
@@ -91,24 +99,27 @@ spec:
             #   path: /livez
             #   scheme: HTTPS
             #   port: api
-            exec:
-              command:
-              - k3s
-              - kubectl
-              - --kubeconfig=/etc/rancher/k3s/k3s.yaml
-              - version
+            # exec:
+            #  command:
+            #  - k3s
+            #  - kubectl
+            #  - --kubeconfig=/etc/rancher/k3s/k3s.yaml
+            #  - version
+            tcpSocket:
+              port: api
           readinessProbe:
-            # httpGet:
-            #   path: /readyz
-            #   scheme: HTTPS
-            #   port: api
-            exec:
-              command:
-              - k3s
-              - kubectl
-              - --kubeconfig=/etc/rancher/k3s/k3s.yaml
-              - version
-
+            #httpGet:
+            #  path: /readyz
+            #  scheme: HTTPS
+            #  port: api
+                #  exec:
+                # command:
+                # - k3s
+                # - kubectl
+                # - --kubeconfig=/etc/rancher/k3s/k3s.yaml
+                # - version
+            tcpSocket:
+              port: api
           resources:
             {{- toYaml .Values.controlplane.resources | nindent 12 }}
           volumeMounts:

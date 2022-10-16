@@ -8,6 +8,8 @@ Deploy a Kubernetes cluster inside of another Kubernetes cluster, with all of th
 
 Even if you have access to a Kubernetes cluster, odds are, you don't have cluster admin permissions to it, which means you cannot do things like install custom resource defintions (CRDs). This makes testing custom operators and other tools that manage Kubernetes itself a pain. When deploying an application in Kubernetes as part of a CI/CD pipeline integration test or staging environment, there may be extra state floating around that may interfere with or even invalidate the results of your tests. Using KinK, you can create a completely fresh cluster each time, just like using KinD, but in a Kubernetes cluster, leveraging as much scalability as the parent cluster affords, and usable from within another Pod.
 
+While it is entirely possible to use a cloud provider like AWS, GCP, or Azure to create a new cluster as part of a CI/CD pipeline, this is both insecure and wasteful, as it requires providing your developers the ability to create (and more importantly, delete!) all of the resources required to do so, and requires you to pay for those resources, even if you aren't fully utilizing them. By creating a new nested cluster inside of your existing software factory cluster, you can place more restrictions on what permissions developers require, and leverage your existing factory autoscaling to maximize resource utilization and descrease costs.
+
 ## How?
 
 KinK is based off of [k3s](https://k3s.io/), a super-lightweight Kubernetes distribution, which includes networking, storage, and ingress.

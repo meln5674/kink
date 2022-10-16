@@ -25,6 +25,7 @@ metadata:
 spec:
   clusterIP: "None"
   type: {{ .Values.controlplane.service.type }}
+  publishNotReadyAddresses: true
   ports:
     {{- range $port := list "api" "kubelet-metrics" "etcd-client" "etcd-peer" }}
     - port: {{ (index $.Values.controlplane.service $port).port }}

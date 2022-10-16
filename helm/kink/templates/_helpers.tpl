@@ -54,11 +54,17 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- define "kink.controlplane.labels" -}}
 {{ include "kink.labels" . }}
 app.kubernetes.io/component: controlplane
+{{- with .Values.controlplane.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
 {{- end -}}
 
 {{- define "kink.worker.labels" -}}
 {{ include "kink.labels" . }}
 app.kubernetes.io/component: worker
+{{- with .Values.worker.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -72,11 +78,17 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "kink.controlplane.selectorLabels" -}}
 {{ include "kink.selectorLabels" . }}
 app.kubernetes.io/component: controlplane
+{{- with .Values.controlplane.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
 {{- end -}}
 
 {{- define "kink.worker.selectorLabels" -}}
 {{ include "kink.selectorLabels" . }}
 app.kubernetes.io/component: worker
+{{- with .Values.worker.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
 {{- end -}}
 
 
