@@ -26,13 +26,8 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "kink",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Kubernetes in Kubernetes",
+	Long:  `Deploy Kubernetes clusters within other Kubernetes clusters`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
@@ -48,22 +43,13 @@ func Execute() {
 }
 
 func init() {
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.kink.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	// TODO: Add .exe to default binaries if running on windows
 	rootCmd.PersistentFlags().StringSliceVar(&helmFlags.Command, "helm-command", []string{"helm"}, "Command to execute for helm")
 	rootCmd.PersistentFlags().StringSliceVar(&kubectlFlags.Command, "kubectl-command", []string{"kubectl"}, "Command to execute for kubectl")
 	rootCmd.PersistentFlags().StringSliceVar(&dockerFlags.Command, "docker-command", []string{"docker"}, "Command to execute for docker")
 
 	rootCmd.PersistentFlags().StringVar(&chartFlags.ChartName, "chart", "kink", "Name of KinK Helm Chart")
 	rootCmd.PersistentFlags().StringVar(&chartFlags.RepositoryURL, "repository-url", "https://meln5674.github.io/kink", "URL of KinK Helm Chart repository")
-	rootCmd.PersistentFlags().StringVar(&releaseFlags.ClusterName, "cluster", "kink", "Command to execute for docker")
+	rootCmd.PersistentFlags().StringVar(&releaseFlags.ClusterName, "cluster", "kink", "Name of the kink cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&releaseFlags.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&releaseFlags.Set, "set", []string{}, "Extra field overrides to use when creating cluster")
 	// TODO: Add flags for kubeconfig/helm

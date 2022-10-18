@@ -24,13 +24,18 @@ var (
 // shCmd represents the sh command
 var shCmd = &cobra.Command{
 	Use:   "sh",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Execute a shell command with access to a cluster",
+	Long: `Because kink clusters are contained within another cluster, their controlplane may not
+be accessible from where you are running kink, unless you have made extra provisions such as Ingress
+or a LoadBalancer Service.
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+To work around this, kink can use Kubernetes port-forwarding to provide
+access to that controlplane. This command sets up that port forwarding, sets the KUBECONFIG variable
+to a temporary file that will connect to it, and executes your shell command, then stop forwarding and
+clean up the temporary kubeconfig once it has exited.
+
+If no arguments are provided, this instead runs an interactive shell, allowing you to, for example
+interactively use tools like kubectl and helm to interact with your isolated cluster.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		ec, err := func() (*int, error) {
 			ctx := context.TODO()
