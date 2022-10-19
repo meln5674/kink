@@ -12,6 +12,8 @@ import (
 	"github.com/meln5674/kink/pkg/docker"
 	"github.com/meln5674/kink/pkg/helm"
 	"github.com/meln5674/kink/pkg/kubectl"
+
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 var (
@@ -49,9 +51,10 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&chartFlags.ChartName, "chart", "kink", "Name of KinK Helm Chart")
 	rootCmd.PersistentFlags().StringVar(&chartFlags.RepositoryURL, "repository-url", "https://meln5674.github.io/kink", "URL of KinK Helm Chart repository")
-	rootCmd.PersistentFlags().StringVar(&releaseFlags.ClusterName, "cluster", "kink", "Name of the kink cluster")
+	rootCmd.PersistentFlags().StringVar(&releaseFlags.ClusterName, "name", "kink", "Name of the kink cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&releaseFlags.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&releaseFlags.Set, "set", []string{}, "Extra field overrides to use when creating cluster")
-	// TODO: Add flags for kubeconfig/helm
 	// TODO: Add flags for docker
+	rootCmd.PersistentFlags().StringVar(&kubeFlags.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig file to use for CLI requests.")
+	clientcmd.BindOverrideFlags(&kubeFlags.ConfigOverrides, rootCmd.PersistentFlags(), clientcmd.RecommendedConfigOverrideFlags(""))
 }

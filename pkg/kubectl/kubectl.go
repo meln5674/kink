@@ -2,7 +2,14 @@ package kubectl
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
+
+	clientcmd "k8s.io/client-go/tools/clientcmd"
+)
+
+var (
+	recommendedFlags = clientcmd.RecommendedConfigOverrideFlags("")
 )
 
 type KubectlFlags struct {
@@ -10,11 +17,157 @@ type KubectlFlags struct {
 }
 
 type KubeFlags struct {
-	// TODO
+	ConfigOverrides clientcmd.ConfigOverrides
+	Kubeconfig      string
+}
+
+func addFlag(cmd *[]string, f *clientcmd.FlagInfo, value, zero interface{}, str string) {
+	if reflect.DeepEqual(value, zero) {
+		return
+	}
+	*cmd = append(*cmd, "--"+f.LongName)
+	if str == "" {
+		*cmd = append(*cmd, fmt.Sprintf("%s", value))
+	} else {
+		*cmd = append(*cmd, str)
+	}
 }
 
 func (k *KubeFlags) Flags() []string {
-	return []string{} // TODO
+	cmd := make([]string, 0)
+	addFlag(
+		&cmd,
+		&recommendedFlags.AuthOverrideFlags.ClientCertificate,
+		k.ConfigOverrides.AuthInfo.ClientCertificate,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.AuthOverrideFlags.ClientKey,
+		k.ConfigOverrides.AuthInfo.ClientKey,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.AuthOverrideFlags.Token,
+		k.ConfigOverrides.AuthInfo.Token,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.AuthOverrideFlags.Impersonate,
+		k.ConfigOverrides.AuthInfo.Impersonate,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.AuthOverrideFlags.ImpersonateUID,
+		k.ConfigOverrides.AuthInfo.ImpersonateUID,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.AuthOverrideFlags.ImpersonateGroups,
+		k.ConfigOverrides.AuthInfo.ImpersonateGroups,
+		[]string{},
+		strings.Join(k.ConfigOverrides.AuthInfo.ImpersonateGroups, ","),
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.AuthOverrideFlags.Username,
+		k.ConfigOverrides.AuthInfo.Password,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.ClusterOverrideFlags.APIServer,
+		k.ConfigOverrides.ClusterInfo.Server,
+		"",
+		"",
+	)
+	/*
+		TODO: What flag is this? It doesn't appear to be used?
+		addFlag(
+			&cmd,
+			&recommendedFlags.ClusterOverrideFlags.APIVersion,
+			k.ConfigOverrides.ClusterInfo.APIVersion,
+			"",
+			"",
+		)
+	*/
+	addFlag(
+		&cmd,
+		&recommendedFlags.ClusterOverrideFlags.CertificateAuthority,
+		k.ConfigOverrides.ClusterInfo.CertificateAuthority,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.ClusterOverrideFlags.InsecureSkipTLSVerify,
+		k.ConfigOverrides.ClusterInfo.InsecureSkipTLSVerify,
+		false,
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.ClusterOverrideFlags.TLSServerName,
+		k.ConfigOverrides.ClusterInfo.TLSServerName,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.ClusterOverrideFlags.ProxyURL,
+		k.ConfigOverrides.ClusterInfo.ProxyURL,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.ContextOverrideFlags.ClusterName,
+		k.ConfigOverrides.Context.Cluster,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.ContextOverrideFlags.AuthInfoName,
+		k.ConfigOverrides.Context.AuthInfo,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.ContextOverrideFlags.Namespace,
+		k.ConfigOverrides.Context.Namespace,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.CurrentContext,
+		k.ConfigOverrides.CurrentContext,
+		"",
+		"",
+	)
+	addFlag(
+		&cmd,
+		&recommendedFlags.Timeout,
+		k.ConfigOverrides.Timeout,
+		"0",
+		"",
+	)
+	if k.Kubeconfig != "" {
+		cmd = append(cmd, "--kubeconfig", k.Kubeconfig)
+	}
+	return cmd
 }
 
 func GetPods(k *KubectlFlags, ku *KubeFlags, namespace string, labels map[string]string) []string {

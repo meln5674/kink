@@ -2,7 +2,13 @@ You've heard of [Kubernetes in Docker (KinD)](https://github.com/kubernetes-sigs
 
 # Kubernetes in Kubernetes (KinK)
 
+## What?
+
 Deploy a Kubernetes cluster inside of another Kubernetes cluster, with all of the HA and scalability you would expect.
+
+Kink is currently made up of two components:
+* A Helm Chart which deploys a nested Cluster
+* A CLI tool to automate using the above chart, as well as normal tasks like load images, and providing access to clusters which aren't otherwise exposed
 
 ## Why?
 
@@ -23,12 +29,17 @@ docker build -t <image registry>:<image name>:<image tag> .
 docker push <image registry>/<image name>:<image tag>
 ```
 
-Next, use [Helm](https://helm.sh/) to deploy a new cluster into your existing cluster
+Next, install the CLI interface
 
 ```bash
-kubectl create secret generic <token secret> --from-literal token=<some very secret value>
+go install github.com/meln5674/kink
+```
 
-helm upgrade --install kink helm/kink \
+You'll now be able to deploy your cluster
+
+```bash
+kink create cluster \
+    --chart ./helm/kink \
     # Set to the image you built
     --set image.repository=<image registry>/<image name> \
     --set image.tag=<image tag> \
@@ -40,25 +51,26 @@ helm upgrade --install kink helm/kink \
     # Necessary if your cluster is not running rootless
     --set controlplane.securityContext.privileged=true \
     --set worker.securityContext.privileged=true \
-    # To enable HA
-    --set controlplane.replicaCount=3 \
+    # To enable multiple workers
     --set worker.replicaCount=3
     # See values.yaml for all fields you can set
 ```
 
-Finally, pull out the generated KUBECONFIG file, port-forward to the new API server, and start using it!
+Finally, start a nested shell configured to access your cluster, and start using it!
 ```bash
-kubectl cp kink-controlplane-0:/etc/rancher/k3s/k3s.yaml ./kink.kubeconfig
-kubectl port-forward svc/kink-controlplane 6443:6443 &
-kubectl --kubeconfig=kink.kubeconfig version
-kubectl --kubeconfig=kink.kubeconfig cluster-info
-kubectl --kubeconfig=kink.kubeconfig get nodes
-kubectl --kubeconfig=kink.kubeconfig get all -A
+kink sh
+# New shell will open
+kubectl version
+kubectl cluster-info
+kubectl get nodes
+kubectl get all -A
+# Or press Ctrl+D
+exit
 ```
 
 Once you're done, throw it away
 ```bash
-helm delete kink
+kink delete cluster
 ```
 
 If you don't have a cluster to test with, you can use [KinD](https://github.com/kubernetes-sigs/kind) to create a cluster in a single docker container, and the nesting will work as you expect.

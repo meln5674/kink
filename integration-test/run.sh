@@ -29,7 +29,7 @@ CLUSTER_EXISTS="$(
         echo 1
     fi
 )"
-if [ -z "${CLUSTER_EXISTS}" ] || ([ -n "${CLUSTER_EXISTS}" ] && [ -z "${KINK_IT_NO_CLEANUP}" ]); then
+if [ -z "${CLUSTER_EXISTS}" ] || ([ -n "${CLUSTER_EXISTS}" ] && [ -z "${KINK_IT_NO_CLEANUP}" ] && [ -z "${KINK_IT_CLEANUP}"]); then
     kind create cluster \
         --name="${KIND_CLUSTER_NAME}" \
         --kubeconfig="${KUBECONFIG}"
@@ -37,6 +37,12 @@ fi
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
     TRAP_CMD="kind delete cluster --name='${KIND_CLUSTER_NAME}'"
     trap "${TRAP_CMD}" EXIT
+fi
+
+if [ -n "${KINK_IT_CLEANUP}" ]; then
+    kink delete cluster
+    kind delete cluster --name="${KIND_CLUSTER_NAME}"
+    exit 0
 fi
 
 kind load docker-image "${BUILT_IMAGE}" --name="${KIND_CLUSTER_NAME}"
@@ -67,11 +73,11 @@ MARIADB_IMAGE=docker.io/bitnami/mariadb:10.6.10-debian-11-r0
 MEMCACHED_IMAGE=docker.io/bitnami/memcached:1.6.17-debian-11-r6
 
 docker pull "${WORDPRESS_IMAGE}" 
-#bin/kink.cover load docker-image --image "${WORDPRESS_IMAGE}" --parallel-loads=-1
+bin/kink.cover load docker-image --image "${WORDPRESS_IMAGE}" --parallel-loads=1
 
 docker pull "${MARIADB_IMAGE}"
 docker save "${MARIADB_IMAGE}" > ./integration-test/mariadb.tar
-bin/kink.cover load docker-archive --archive ./integration-test/mariadb.tar
+KUBECONFIG="" bin/kink.cover --kubeconfig="${KUBECONFIG}" load docker-archive --archive ./integration-test/mariadb.tar
 
 buildah build-using-dockerfile \
     --file - \
@@ -86,13 +92,24 @@ bin/kink.cover sh -- '
     while ! kubectl version ; do
         sleep 10;
     done
+    kubectl cluster-info
+    kubectl get nodes
+
     helm upgrade --install wordpress bitnami/wordpress \
+        --wait \
         --set persistence.enabled=true \
         --set mariadb.enabled=true \
         --set memcached.enabled=true \
         --set service.type=ClusterIP \
         --set ingress.enabled=true \
         --debug
+
+
+    kubectl get all -A
+    kubectl port-forward svc/wordpress 8080:80 &
+    sleep 5
+    curl -v http://localhost:8080
+    kill %1
 '
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
     TRAP_CMD="bin/kink.cover sh helm delete wordpress ; ${TRAP_CMD}"
