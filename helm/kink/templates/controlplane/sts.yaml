@@ -62,7 +62,15 @@ spec:
                 --server={{ include "kink.controlplane.url" . }}
            fi
           {{- else }}
-          args: [ server, --data-dir=/var/lib/rancher/k3s ]
+          args:
+          - server
+          - --data-dir=/var/lib/rancher/k3s
+          - '--tls-san={{ .Release.Name }}'
+          - '--tls-san={{ include "kink.controlplane.fullname" . }}'
+          - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}'
+          - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc'
+          - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
+          - '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
           {{- end }}
           ports:
             - name: api

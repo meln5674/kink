@@ -1,3 +1,3 @@
-{{- if gt .Values.controlplace.replicaCount 1 }}
+{{- if gt .Values.controlplane.replicaCount 1 }}
 WARNING: HA controlplane is currently VERY fragile. Do not rely on this. Deleting a controlplane pod will require manually removing the old pod's IP from the embedded etcd with etcdctl
 {{- end }}
