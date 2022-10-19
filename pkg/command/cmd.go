@@ -265,30 +265,30 @@ func (c *Cmd) Kill() error {
 }
 
 type Pipeline struct {
-	Cmds []*Cmd
+	Cmds     []*Cmd
+	InPipes  []*os.File
+	OutPipes []*os.File
 }
 
 func NewPipeline(cmd ...*Cmd) (*Pipeline, error) {
 	if len(cmd) < 2 {
 		return nil, fmt.Errorf("Need at least two commands for a pipeline")
 	}
-	/*
-		stdout, err := cmd[0].StdoutPipe()
-		if err != nil {
-			return nil, err
-		}
-	*/
-	var err error
 	prevCmd := cmd[0]
+	inPipes := make([]*os.File, 0, len(cmd)-1)
+	outPipes := make([]*os.File, 0, len(cmd)-1)
 	for _, nextCmd := range cmd[1:] {
 		// TODO: Does this need to get cleaned up somehow?
-		nextCmd.Stdin, prevCmd.Stdout, err = os.Pipe()
-		// stdout, err = nextCmd.StdoutPipe()
+		reader, writer, err := os.Pipe()
 		if err != nil {
 			return nil, err
 		}
+		inPipes = append(inPipes, reader)
+		outPipes = append(outPipes, writer)
+		nextCmd.Stdin = reader
+		prevCmd.Stdout = writer
 	}
-	return &Pipeline{Cmds: cmd}, nil
+	return &Pipeline{Cmds: cmd, InPipes: inPipes, OutPipes: outPipes}, nil
 }
 
 func (p *Pipeline) ForwardErr() *Pipeline {
@@ -324,24 +324,42 @@ func (p *Pipeline) Start() error {
 	return nil
 }
 
+type ixerr struct {
+	ix  int
+	err error
+}
+
 func (p *Pipeline) Wait() error {
 	errs := make([]error, 0, len(p.Cmds))
-	dead := false
 	// Iterating in reverse because if a downstream process, its writer may be blocking forever on its stdout
 	// If that's the case, then we attempt to kill each process upstream from that because there's no point in letting them finish
-	for ix := len(p.Cmds) - 1; ix >= 0; ix-- {
-		cmd := p.Cmds[ix]
-		err := cmd.Wait()
-		if err != nil {
-			errs = append(errs, err)
-			if !dead {
-				dead = true
-				for ix2 := ix - 1; ix2 >= 0; ix-- {
-					// We don't care about the error, if this fails, then we'll be deadlocked anyways
-					p.Cmds[ix2].Process.Kill()
-				}
-			}
+	errChan := make(chan ixerr)
+	sem := make(chan struct{})
+	go func() {
+		for _ = range p.Cmds {
+			_ = <-sem
 		}
+		close(errChan)
+	}()
+	for ix, cmd := range p.Cmds {
+		go func(ix int, cmd *Cmd) {
+			defer func() {
+				sem <- struct{}{}
+			}()
+			err := cmd.Wait()
+			if ix > 0 {
+				p.InPipes[ix-1].Close()
+			}
+			if ix < len(p.Cmds)-1 {
+				p.OutPipes[ix].Close()
+			}
+			if err != nil {
+				errChan <- ixerr{ix: ix, err: err}
+			}
+		}(ix, cmd)
+	}
+	for err := range errChan {
+		errs = append(errs, err.err)
 	}
 	if len(errs) != 0 {
 		return &MultiProcessError{Errors: errs}
