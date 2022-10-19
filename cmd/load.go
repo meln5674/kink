@@ -7,7 +7,7 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/meln5674/kink/pkg/command"
+	"github.com/meln5674/gosh/pkg/command"
 	"github.com/spf13/cobra"
 	"io"
 	corev1 "k8s.io/api/core/v1"

@@ -8,7 +8,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/meln5674/kink/pkg/command"
+	"github.com/meln5674/gosh/pkg/command"
 	"github.com/meln5674/kink/pkg/kubectl"
 	"log"
 

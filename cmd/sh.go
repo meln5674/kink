@@ -12,7 +12,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/meln5674/kink/pkg/command"
+	"github.com/meln5674/gosh/pkg/command"
 	"github.com/meln5674/kink/pkg/kubectl"
 	"github.com/spf13/cobra"
 )
