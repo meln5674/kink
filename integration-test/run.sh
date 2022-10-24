@@ -111,8 +111,15 @@ bin/kink.cover sh -- '
     curl -v http://localhost:8080
     kill %1
 '
+
+KINK_KUBECONFIG=integration-test/kink.kubeconfig
+
+bin/kink.cover -v11 export kubeconfig --out-kubeconfig="${KINK_KUBECONFIG}"
+
+cat "${KINK_KUBECONFIG}"
+
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
-    TRAP_CMD="bin/kink.cover sh helm delete wordpress ; ${TRAP_CMD}"
+    TRAP_CMD="bin/kink.cover exec -- helm delete wordpress ; ${TRAP_CMD}"
     trap "${TRAP_CMD}" EXIT
 fi
 

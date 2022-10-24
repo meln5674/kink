@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var ()
+
 // getKubeconfigCmd represents the getKubeconfig command
 var getKubeconfigCmd = &cobra.Command{
 	Use:   "kubeconfig",

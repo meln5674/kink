@@ -5,13 +5,6 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"context"
-	"os"
-
-	"github.com/meln5674/gosh/pkg/command"
-	"github.com/meln5674/kink/pkg/kubectl"
-	"log"
-
 	"github.com/spf13/cobra"
 )
 
@@ -20,60 +13,18 @@ var (
 )
 
 // ociArchiveCmd represents the ociArchive command
-var ociArchiveCmd = &cobra.Command{
+var loadOCIArchiveCmd = &cobra.Command{
 	Use:   "oci-archive",
 	Short: "Loads OCI image archive (e.g. from buildah) to all nodes in your cluster",
 	Run: func(cmd *cobra.Command, args []string) {
-		err := func() error {
-			if len(ociArchivesToLoad) == 0 {
-				log.Println("No images specified")
-				os.Exit(1)
-			}
-			ctx := context.TODO()
-			podNames := make([]string, 0)
-			getPods := kubectl.GetPods(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, releaseFlags.ExtraLabels())
-			err := command.
-				Command(ctx, getPods...).
-				ForwardErr().
-				ProcessOut(findWorkerPods(&podNames)).
-				Run()
-			if err != nil {
-				return err
-			}
-			imports := make([]command.Commander, 0, len(podNames)*len(ociArchivesToLoad))
-			for _, archive := range ociArchivesToLoad {
-				for _, podName := range podNames {
-					kubectlExec := kubectl.Exec(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, podName, true, false, "k3s", "ctr", "image", "import", "-")
-					cmd := command.
-						Command(ctx, kubectlExec...).
-						ForwardOutErr()
-					err = cmd.FileIn(archive)
-					if err != nil {
-						return err
-					}
-					imports = append(imports, cmd)
-				}
-			}
-			// TODO: Replace this with a goroutine that copies from one docker save to each kubectl exec
-			parallelCount := parallelLoads
-			if parallelCount == -1 {
-				parallelCount = len(imports)
-			}
-			err = command.FanOut(parallelCount, imports...)
-			if err != nil {
-				return err
-			}
-			return nil
-		}()
-		if err != nil {
-			log.Fatal(err)
-		}
-
+		// These are actually identical operations, but this is here just in case that
+		// ceases to be the case
+		loadArchives(ociArchivesToLoad...)
 	},
 }
 
 func init() {
-	loadCmd.AddCommand(ociArchiveCmd)
+	loadCmd.AddCommand(loadOCIArchiveCmd)
 
 	// Here you will define your flags and configuration settings.
 
@@ -84,5 +35,5 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// ociArchiveCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	ociArchiveCmd.Flags().StringArrayVar(&ociArchivesToLoad, "archive", []string{}, "Paths to archives to load")
+	loadOCIArchiveCmd.Flags().StringArrayVar(&ociArchivesToLoad, "archive", []string{}, "Paths to archives to load")
 }

@@ -6,9 +6,9 @@ package cmd
 
 import (
 	"context"
-	"log"
+	"k8s.io/klog/v2"
 
-	"github.com/meln5674/gosh/pkg/command"
+	"github.com/meln5674/gosh"
 	"github.com/meln5674/kink/pkg/helm"
 
 	"github.com/spf13/cobra"
@@ -23,22 +23,23 @@ var deleteClusterCmd = &cobra.Command{
 
 			ctx := context.TODO()
 
-			log.Println("Deleting release...")
+			klog.Info("Deleting release...")
 			// TODO: Add flag to also delete PVCs
 
 			helmDelete := helm.Delete(&helmFlags, &chartFlags, &releaseFlags, &kubeFlags)
-			err := command.
-				Command(ctx, helmDelete...).
-				ForwardOutErr().
+			err := gosh.
+				Command(helmDelete...).
+				WithContext(ctx).
+				WithStreams(gosh.ForwardOutErr).
 				Run()
 			if err != nil {
 				return err
 			}
-			log.Println("Cluster deleted")
+			klog.Info("Cluster deleted")
 			return nil
 		}()
 		if err != nil {
-			log.Fatal(err)
+			klog.Fatal(err)
 		}
 
 	},

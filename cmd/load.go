@@ -5,14 +5,14 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/meln5674/gosh/pkg/command"
+	"github.com/meln5674/gosh"
 	"github.com/spf13/cobra"
-	"io"
 	corev1 "k8s.io/api/core/v1"
 
-	"encoding/json"
+	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 var (
@@ -43,18 +43,25 @@ func init() {
 	// loadCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
-func findWorkerPods(podNames *[]string) command.PipeProcessor {
-	return func(stdout io.Reader) error {
-		var pods corev1.PodList
-		err := json.NewDecoder(stdout).Decode(&pods)
-		if err != nil {
-			return err
-		}
-		// TODO: detect unhealthy pods and alert the user
-		*podNames = make([]string, 0, len(pods.Items))
-		for _, pod := range pods.Items {
-			*podNames = append(*podNames, pod.Name)
-		}
-		return nil
+func getPods(ctx context.Context) (*corev1.PodList, error) {
+	var pods corev1.PodList
+	getPods := kubectl.GetPods(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, releaseFlags.ExtraLabels())
+	err := gosh.
+		Command(getPods...).
+		WithContext(ctx).
+		WithStreams(
+			gosh.ForwardErr,
+			gosh.FuncOut(gosh.SaveJSON(&pods)),
+		).
+		Run()
+	return &pods, err
+}
+
+func importParallel(imports ...gosh.Commander) error {
+	cmd := gosh.FanOut(imports...)
+	if parallelLoads > 0 {
+		cmd = cmd.WithMaxConcurrency(parallelLoads)
 	}
+	return cmd.Run()
+
 }

@@ -6,11 +6,11 @@ package cmd
 
 import (
 	"context"
-	"log"
+	"k8s.io/klog/v2"
 
 	"github.com/spf13/cobra"
 
-	"github.com/meln5674/gosh/pkg/command"
+	"github.com/meln5674/gosh"
 	"github.com/meln5674/kink/pkg/helm"
 )
 
@@ -24,32 +24,34 @@ var createClusterCmd = &cobra.Command{
 			ctx := context.TODO()
 			var err error
 			if chartFlags.IsLocalChart() {
-				log.Println("Using local chart, skipping `repo add`...")
+				klog.Info("Using local chart, skipping `repo add`...")
 			} else {
-				log.Println("Ensuring helm repo exists...")
+				klog.Info("Ensuring helm repo exists...")
 				repoAdd := helm.RepoAdd(&helmFlags, &chartFlags, &releaseFlags)
-				err = command.
-					Command(ctx, repoAdd...).
-					ForwardOutErr().
+				err = gosh.
+					Command(repoAdd...).
+					WithContext(ctx).
+					WithStreams(gosh.ForwardOutErr).
 					Run()
 				if err != nil {
 					return err
 				}
 			}
-			log.Println("Deploying chart...")
+			klog.Info("Deploying chart...")
 			helmUpgrade := helm.Upgrade(&helmFlags, &chartFlags, &releaseFlags, &kubeFlags)
-			err = command.
-				Command(ctx, helmUpgrade...).
-				ForwardOutErr().
+			err = gosh.
+				Command(helmUpgrade...).
+				WithContext(ctx).
+				WithStreams(gosh.ForwardOutErr).
 				Run()
 			if err != nil {
 				return err
 			}
-			log.Println("Deployed chart, your cluster is now ready to use")
+			klog.Info("Deployed chart, your cluster is now ready to use")
 			return nil
 		}()
 		if err != nil {
-			log.Fatal(err)
+			klog.Fatal(err)
 		}
 	},
 }

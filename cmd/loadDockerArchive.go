@@ -6,74 +6,29 @@ package cmd
 
 import (
 	"context"
-	"os"
-
-	"github.com/meln5674/gosh/pkg/command"
-	"github.com/meln5674/kink/pkg/kubectl"
-	"log"
+	"k8s.io/klog/v2"
 
 	"github.com/spf13/cobra"
+
+	"github.com/meln5674/gosh"
+	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 var (
 	dockerArchivesToLoad []string
 )
 
-// dockerArchiveCmd represents the dockerArchive command
-var dockerArchiveCmd = &cobra.Command{
+// loadDockerArchiveCmd represents the dockerArchive command
+var loadDockerArchiveCmd = &cobra.Command{
 	Use:   "docker-archive",
 	Short: "Loads docker-formatted archives from the host to all nodes",
 	Run: func(cmd *cobra.Command, args []string) {
-		err := func() error {
-			if len(dockerArchivesToLoad) == 0 {
-				log.Println("No images specified")
-				os.Exit(1)
-			}
-			ctx := context.TODO()
-			podNames := make([]string, 0)
-			getPods := kubectl.GetPods(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, releaseFlags.ExtraLabels())
-			err := command.
-				Command(ctx, getPods...).
-				ForwardErr().
-				ProcessOut(findWorkerPods(&podNames)).
-				Run()
-			if err != nil {
-				return err
-			}
-			imports := make([]command.Commander, 0, len(podNames)*len(dockerArchivesToLoad))
-			for _, archive := range dockerArchivesToLoad {
-				for _, podName := range podNames {
-					kubectlExec := kubectl.Exec(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, podName, true, false, "k3s", "ctr", "image", "import", "-")
-					cmd := command.
-						Command(ctx, kubectlExec...).
-						ForwardOutErr()
-					err = cmd.FileIn(archive)
-					if err != nil {
-						return err
-					}
-					imports = append(imports, cmd)
-				}
-			}
-			// TODO: Replace this with a goroutine that copies from one docker save to each kubectl exec
-			parallelCount := parallelLoads
-			if parallelCount == -1 {
-				parallelCount = len(imports)
-			}
-			err = command.FanOut(parallelCount, imports...)
-			if err != nil {
-				return err
-			}
-			return nil
-		}()
-		if err != nil {
-			log.Fatal(err)
-		}
-
+		loadArchives(dockerArchivesToLoad...)
 	},
 }
 
 func init() {
-	loadCmd.AddCommand(dockerArchiveCmd)
+	loadCmd.AddCommand(loadDockerArchiveCmd)
 
 	// Here you will define your flags and configuration settings.
 
@@ -84,5 +39,47 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// dockerArchiveCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	dockerArchiveCmd.Flags().StringArrayVar(&dockerArchivesToLoad, "archive", []string{}, "Paths to archives to load")
+	loadDockerArchiveCmd.Flags().StringArrayVar(&dockerArchivesToLoad, "archive", []string{}, "Paths to archives to load")
+}
+
+func loadArchives(archives ...string) {
+	err := func() error {
+		if len(archives) == 0 {
+			klog.Fatal("No images specified")
+		}
+		ctx := context.TODO()
+		pods, err := getPods(ctx)
+		if err != nil {
+			return err
+		}
+		imports := make([]gosh.Commander, 0, len(pods.Items)*len(dockerArchivesToLoad))
+		for _, archive := range dockerArchivesToLoad {
+			for _, pod := range pods.Items {
+				kubectlExec := kubectl.Exec(
+					&kubectlFlags, &kubeFlags,
+					releaseFlags.Namespace, pod.Name,
+					true, false,
+					"k3s", "ctr", "image", "import", "-",
+				)
+				cmd := gosh.
+					Command(kubectlExec...).
+					WithContext(ctx).
+					WithStreams(
+						gosh.FileIn(archive),
+						gosh.ForwardOutErr,
+					)
+				imports = append(imports, cmd)
+			}
+		}
+		// TODO: Replace this with a goroutine that copies from one docker save to each kubectl exec
+		err = importParallel(imports...)
+		if err != nil {
+			return err
+		}
+		return nil
+	}()
+	if err != nil {
+		klog.Fatal(err)
+	}
+
 }

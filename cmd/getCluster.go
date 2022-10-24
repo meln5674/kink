@@ -7,36 +7,13 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
-	"log"
+	"k8s.io/klog/v2"
 
-	"encoding/json"
-
-	"github.com/meln5674/gosh/pkg/command"
+	"github.com/meln5674/gosh"
 	"github.com/meln5674/kink/pkg/helm"
 
 	"github.com/spf13/cobra"
 )
-
-func findKinkReleases(releases *[]map[string]interface{}) func(io.Reader) error {
-	return func(stdout io.Reader) error {
-		decoder := json.NewDecoder(stdout)
-		allReleases := make([]map[string]interface{}, 0)
-
-		err := decoder.Decode(&allReleases)
-		if err != nil {
-			return err
-		}
-
-		for _, release := range allReleases {
-			name := release["name"].(string)
-			if helm.IsKinkRelease(name) {
-				*releases = append(*releases, release)
-			}
-		}
-		return nil
-	}
-}
 
 // getClusterCmd represents the getCluster command
 var getClusterCmd = &cobra.Command{
@@ -50,16 +27,22 @@ var getClusterCmd = &cobra.Command{
 			releases := make([]map[string]interface{}, 0)
 
 			helmList := helm.List(&helmFlags, &chartFlags, &releaseFlags, &kubeFlags)
-			err := command.
-				Command(ctx, helmList...).
-				ForwardErr().
-				ProcessOut(findKinkReleases(&releases)).
+			err := gosh.
+				Command(helmList...).
+				WithContext(ctx).
+				WithStreams(
+					gosh.ForwardErr,
+					gosh.FuncOut(gosh.SaveJSON(&releases)),
+				).
 				Run()
 			if err != nil {
 				return err
 			}
 
 			for _, release := range releases {
+				if !helm.IsKinkRelease(release["name"].(string)) {
+					continue
+				}
 				if releaseFlags.Namespace != "" {
 					fmt.Printf("%s %s\n", release["namespace"], release["name"])
 				} else {
@@ -70,7 +53,7 @@ var getClusterCmd = &cobra.Command{
 			return nil
 		}()
 		if err != nil {
-			log.Fatal(err)
+			klog.Fatal(err)
 		}
 
 	},

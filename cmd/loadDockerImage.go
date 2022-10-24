@@ -6,14 +6,13 @@ package cmd
 
 import (
 	"context"
-	"os"
 
-	"github.com/meln5674/gosh/pkg/command"
+	"github.com/meln5674/gosh"
+	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
+
 	"github.com/meln5674/kink/pkg/docker"
 	"github.com/meln5674/kink/pkg/kubectl"
-	"log"
-
-	"github.com/spf13/cobra"
 )
 
 var (
@@ -25,50 +24,39 @@ var dockerImageCmd = &cobra.Command{
 	Use:   "docker-image",
 	Short: "Loads docker images from host docker daemon to all nodes",
 	Run: func(cmd *cobra.Command, args []string) {
+		if len(dockerImagesToLoad) == 0 {
+			klog.Fatal("No images specified")
+		}
 		err := func() error {
-			if len(dockerImagesToLoad) == 0 {
-				log.Println("No images specified")
-				os.Exit(1)
-			}
 			ctx := context.TODO()
-			podNames := make([]string, 0)
-			getPods := kubectl.GetPods(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, releaseFlags.ExtraLabels())
-			err := command.
-				Command(ctx, getPods...).
-				ForwardErr().
-				ProcessOut(findWorkerPods(&podNames)).
-				Run()
+			pods, err := getPods(ctx)
 			if err != nil {
 				return err
 			}
-			imports := make([]command.Commander, 0, len(podNames))
-			for _, podName := range podNames {
-				kubectlExec := kubectl.Exec(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, podName, true, false, "k3s", "ctr", "image", "import", "-")
+			imports := make([]gosh.Commander, 0, len(pods.Items))
+			for _, pod := range pods.Items {
+				kubectlExec := kubectl.Exec(
+					&kubectlFlags, &kubeFlags,
+					releaseFlags.Namespace, pod.Name,
+					true, false,
+					"k3s", "ctr", "image", "import", "-",
+				)
 				dockerSave := docker.Save(&dockerFlags, dockerImagesToLoad...)
-				pipeline, err := command.
-					NewPipeline(
-						command.Command(ctx, dockerSave...),
-						command.Command(ctx, kubectlExec...),
-					)
-				if err != nil {
-					return err
-				}
-				pipeline.ForwardErr()
+				pipeline := gosh.Pipeline(
+					gosh.Command(dockerSave...).WithContext(ctx),
+					gosh.Command(kubectlExec...).WithContext(ctx),
+				).WithStreams(gosh.ForwardErr)
 				imports = append(imports, pipeline)
 			}
 			// TODO: Replace this with a goroutine that copies from one docker save to each kubectl exec
-			parallelCount := parallelLoads
-			if parallelCount == -1 {
-				parallelCount = len(imports)
-			}
-			err = command.FanOut(parallelCount, imports...)
+			err = importParallel(imports...)
 			if err != nil {
 				return err
 			}
 			return nil
 		}()
 		if err != nil {
-			log.Fatal(err)
+			klog.Fatal(err)
 		}
 
 	},

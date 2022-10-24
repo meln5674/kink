@@ -7,12 +7,12 @@ package cmd
 import (
 	"context"
 	"errors"
-	"log"
+	"k8s.io/klog/v2"
 	"os"
 	"os/exec"
 	"time"
 
-	"github.com/meln5674/gosh/pkg/command"
+	"github.com/meln5674/gosh"
 	"github.com/meln5674/kink/pkg/kubectl"
 	"github.com/spf13/cobra"
 )
@@ -36,71 +36,11 @@ clean up the temporary kubeconfig once it has exited.
 
 This command does not perform variable replacements or glob expansions. To do this, use 'kink sh'`,
 	Run: func(cmd *cobra.Command, args []string) {
-		ec, err := func() (*int, error) {
-			ctx := context.TODO()
-
-			kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
-			defer kubeconfig.Close()
-			defer os.Remove(kubeconfig.Name())
-			if err != nil {
-				return nil, err
-			}
-			kubectlCp := kubectl.Cp(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, "kink-kink-controlplane-0", "/etc/rancher/k3s/k3s.yaml", kubeconfig.Name())
-			err = command.Command(ctx, kubectlCp...).ForwardOutErr().Run()
-			if err != nil {
-				return nil, err
-			}
-
-			// TODO: Get service name/remote port from chart (helm get manifest)
-			// TODO: Make local port configurable with flag
-			kubectlPortForward := kubectl.PortForward(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, "svc/kink-kink-controlplane", map[string]string{"6443": "6443"})
-			kubectlPortForwardCmd := command.
-				Command(ctx, kubectlPortForward...).
-				ForwardOutErr()
-
-			err = kubectlPortForwardCmd.Start()
-
-			if err != nil {
-				return nil, err
-			}
-			defer func() {
-				// Deliberately ignoing the errors here
-				kubectlPortForwardCmd.Kill()
-				kubectlPortForwardCmd.Wait()
-			}()
-
-			log.Println("Waiting for cluster to be accessible on localhost...")
-			kubectlVersion := kubectl.Version(&kubectlFlags, &kubeFlags)
-			for err = errors.New("dummy"); err != nil; err = command.Command(ctx, kubectlVersion...).ForwardOutErr().Run() {
-				time.Sleep(5 * time.Second)
-			}
-
-			// TODO: Make shell configurable with flag
-			err = command.
-				Command(ctx, args...).
-				WithParentEnv().
-				WithEnv(map[string]string{
-					"KUBECONFIG": kubeconfig.Name(),
-				}).
-				ForwardAll().
-				Run()
-			var exitError *exec.ExitError
-			if errors.As(err, &exitError) {
-				ec := exitError.ProcessState.ExitCode()
-				return &ec, nil
-			}
-			if err != nil {
-				return nil, err
-			}
-			return nil, nil
-		}()
-		if err != nil {
-			log.Fatal(err)
-		}
-		if ec != nil {
-			os.Exit(*ec)
+		if len(args) == 0 {
+			klog.Fatal("A command is required")
 		}
 
+		execWithGateway(gosh.Command(args...))
 	},
 }
 
@@ -116,4 +56,78 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// execCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+}
+
+func execWithGateway(toExec *gosh.Cmd) {
+	ec, err := func() (*int, error) {
+		ctx := context.TODO()
+
+		kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
+		defer kubeconfig.Close()
+		defer os.Remove(kubeconfig.Name())
+		if err != nil {
+			return nil, err
+		}
+		kubectlCp := kubectl.Cp(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, "kink-kink-controlplane-0", "/etc/rancher/k3s/k3s.yaml", kubeconfig.Name())
+		err = gosh.
+			Command(kubectlCp...).
+			WithContext(ctx).
+			WithStreams(gosh.ForwardOutErr).
+			Run()
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO: Get service name/remote port from chart (helm get manifest)
+		// TODO: Make local port configurable with flag
+		kubectlPortForward := kubectl.PortForward(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, "svc/kink-kink-controlplane", map[string]string{"6443": "6443"})
+		kubectlPortForwardCmd := gosh.
+			Command(kubectlPortForward...).
+			WithContext(ctx).
+			WithStreams(gosh.ForwardOutErr)
+
+		err = kubectlPortForwardCmd.Start()
+
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			// Deliberately ignoing the errors here
+			kubectlPortForwardCmd.Kill()
+			kubectlPortForwardCmd.Wait()
+		}()
+
+		klog.Info("Waiting for cluster to be accessible on localhost...")
+		kubectlVersion := kubectl.Version(&kubectlFlags, &kubeFlags)
+		for err = errors.New("dummy"); err != nil; err = gosh.
+			Command(kubectlVersion...).
+			WithContext(ctx).
+			WithStreams(gosh.ForwardOutErr).
+			Run() {
+			time.Sleep(5 * time.Second)
+		}
+
+		err = toExec.
+			WithContext(ctx).
+			WithParentEnvAnd(map[string]string{
+				"KUBECONFIG": kubeconfig.Name(),
+			}).
+			WithStreams(gosh.ForwardAll).
+			Run()
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			ec := exitError.ProcessState.ExitCode()
+			return &ec, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}()
+	if err != nil {
+		klog.Fatal(err)
+	}
+	if ec != nil {
+		os.Exit(*ec)
+	}
 }

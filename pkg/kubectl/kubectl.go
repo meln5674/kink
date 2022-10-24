@@ -260,3 +260,13 @@ func Version(k *KubectlFlags, ku *KubeFlags) []string {
 	return cmd
 
 }
+
+func ConfigSetCluster(k *KubectlFlags, ku *KubeFlags, cluster string, data map[string]string) []string {
+	cmd := make([]string, len(k.Command))
+	copy(cmd, k.Command)
+	cmd = append(cmd, "config", "set-cluster", cluster)
+	for k, v := range data {
+		cmd = append(cmd, fmt.Sprintf("--%s=%s", k, v))
+	}
+	return cmd
+}

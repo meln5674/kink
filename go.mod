@@ -3,10 +3,11 @@ module github.com/meln5674/kink
 go 1.18
 
 require (
-	github.com/meln5674/gosh v0.0.0-20221019160034-1b8426a565fc
+	github.com/meln5674/gosh v0.0.0-20221024022746-c916cd07d7ed
 	github.com/spf13/cobra v1.5.0
 	k8s.io/api v0.25.3
 	k8s.io/client-go v0.25.3
+	k8s.io/klog/v2 v2.80.1
 )
 
 require (
@@ -32,7 +33,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/apimachinery v0.25.3 // indirect
-	k8s.io/klog/v2 v2.70.1 // indirect
 	k8s.io/utils v0.0.0-20220728103510-ee6ede2d64ed // indirect
 	sigs.k8s.io/json v0.0.0-20220713155537-f223a00ba0e2 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect

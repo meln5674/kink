@@ -5,15 +5,16 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	goflag "flag"
 	"os"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 
 	"github.com/meln5674/kink/pkg/docker"
 	"github.com/meln5674/kink/pkg/helm"
 	"github.com/meln5674/kink/pkg/kubectl"
-
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 var (
@@ -45,6 +46,10 @@ func Execute() {
 }
 
 func init() {
+	klogFlags := goflag.NewFlagSet("", goflag.PanicOnError)
+	klog.InitFlags(klogFlags)
+	rootCmd.PersistentFlags().AddGoFlagSet(klogFlags)
+
 	rootCmd.PersistentFlags().StringSliceVar(&helmFlags.Command, "helm-command", []string{"helm"}, "Command to execute for helm")
 	rootCmd.PersistentFlags().StringSliceVar(&kubectlFlags.Command, "kubectl-command", []string{"kubectl"}, "Command to execute for kubectl")
 	rootCmd.PersistentFlags().StringSliceVar(&dockerFlags.Command, "docker-command", []string{"docker"}, "Command to execute for docker")
