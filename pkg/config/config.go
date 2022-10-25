@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	Kind = "Config"
+	Kind               = "Config"
+	DefaultClusterName = "kink"
 )
 
 var (

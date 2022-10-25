@@ -56,7 +56,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.ChartName, "chart", "kink", "Name of KinK Helm Chart")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.RepositoryURL, "repository-url", "https://meln5674.github.io/kink", "URL of KinK Helm Chart repository")
-	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", "kink", "Name of the kink cluster")
+	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", cfg.DefaultClusterName, "Name of the kink cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&configOverrides.Release.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")
 	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.Set, "set", map[string]string{}, "Extra field overrides to use when creating cluster")
 	// TODO: Add flags for docker
