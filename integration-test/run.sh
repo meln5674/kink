@@ -20,8 +20,6 @@ IMAGE_TAG=${IMAGE_TAG:-${TEST_TIMESTAMP}}
 BUILT_IMAGE=${IMAGE_REPO}:${IMAGE_TAG}
 
 export DOCKER_BUILDKIT=1
-export KUBECONFIG=./integration-test/kind.kubeconfig
-
 
 docker build -t "${BUILT_IMAGE}" .
 CLUSTER_EXISTS="$(
@@ -47,23 +45,22 @@ fi
 
 kind load docker-image "${BUILT_IMAGE}" --name="${KIND_CLUSTER_NAME}"
 
-bin/kink.cover create cluster \
-    --chart ./helm/kink \
+KINK_CLUSTER_NAME=it
+KINK_CONFIG_FILE=integration-test/kink.config.yaml
+
+KINK_COMMAND=( bin/kink.cover --config "${KINK_CONFIG_FILE}" --name "${KINK_CLUSTER_NAME}" -v11 )
+
+
+"${KINK_COMMAND[@]}" create cluster \
     --set image.repository="${IMAGE_REPO}" \
-    --set image.tag="${IMAGE_TAG}" \
-    --set image.pullPolicy=Never \
-    --set controlplane.securityContext.privileged=true \
-    --set worker.securityContext.privileged=true \
-    --set controlplane.replicaCount=1 \
-    --set worker.replicaCount=1 \
-    --set controlplane.persistence.enabled=true \
-    --set worker.persistence.enabled=true 
+    --set image.tag="${IMAGE_TAG}"
+    
 
+"${KINK_COMMAND[@]}" get cluster | tee /dev/stderr | grep "kink-${KINK_CLUSTER_NAME}"
 
-bin/kink.cover get cluster | tee /dev/stderr | grep "kink-kink"
 
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
-    bin/kink.cover delete cluster
+    "${KINK_COMMAND[@]}" delete cluster
 fi
 
 WORDPRESS_CHART_VERSION=15.2.5
@@ -73,22 +70,26 @@ MARIADB_IMAGE=docker.io/bitnami/mariadb:10.6.10-debian-11-r0
 MEMCACHED_IMAGE=docker.io/bitnami/memcached:1.6.17-debian-11-r6
 
 docker pull "${WORDPRESS_IMAGE}" 
-bin/kink.cover load docker-image --image "${WORDPRESS_IMAGE}" --parallel-loads=1
+"${KINK_COMMAND[@]}" load docker-image \
+    --config "${KINK_CONFIG_FILE}" \
+    --name "${KINK_CLUSTER_NAME}" \
+    --image "${WORDPRESS_IMAGE}" \
+    --parallel-loads=1
 
 docker pull "${MARIADB_IMAGE}"
 docker save "${MARIADB_IMAGE}" > ./integration-test/mariadb.tar
-KUBECONFIG="" bin/kink.cover --kubeconfig="${KUBECONFIG}" load docker-archive --archive ./integration-test/mariadb.tar
+"${KINK_COMMAND[@]}" load docker-archive --archive ./integration-test/mariadb.tar
 
 buildah build-using-dockerfile \
     --file - \
     --tag "${MEMCACHED_IMAGE}" \
     <<< "FROM ${MEMCACHED_IMAGE}"
 buildah push "${MEMCACHED_IMAGE}" oci-archive:./integration-test/memcached-image.tar
-bin/kink.cover load oci-archive --archive ./integration-test/memcached-image.tar
+"${KINK_COMMAND[@]}" load oci-archive --archive ./integration-test/memcached-image.tar
 
 helm repo add bitnami https://charts.bitnami.com/bitnami
 
-bin/kink.cover sh -- '
+"${KINK_COMMAND[@]}" sh -- '
     while ! kubectl version ; do
         sleep 10;
     done
@@ -114,7 +115,7 @@ bin/kink.cover sh -- '
 
 KINK_KUBECONFIG=integration-test/kink.kubeconfig
 
-bin/kink.cover -v11 export kubeconfig --out-kubeconfig="${KINK_KUBECONFIG}"
+"${KINK_COMMAND[@]}" export kubeconfig --out-kubeconfig="${KINK_KUBECONFIG}"
 
 cat "${KINK_KUBECONFIG}"
 

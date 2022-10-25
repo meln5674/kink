@@ -7,14 +7,16 @@ package cmd
 import (
 	"context"
 	"errors"
-	"k8s.io/klog/v2"
+	"fmt"
 	"os"
 	"os/exec"
 	"time"
 
 	"github.com/meln5674/gosh"
-	"github.com/meln5674/kink/pkg/kubectl"
 	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
+
+	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 var (
@@ -62,13 +64,18 @@ func execWithGateway(toExec *gosh.Cmd) {
 	ec, err := func() (*int, error) {
 		ctx := context.TODO()
 
+		var err error
+		err = loadConfig()
+		if err != nil {
+			return nil, err
+		}
 		kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
 		defer kubeconfig.Close()
 		defer os.Remove(kubeconfig.Name())
 		if err != nil {
 			return nil, err
 		}
-		kubectlCp := kubectl.Cp(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, "kink-kink-controlplane-0", "/etc/rancher/k3s/k3s.yaml", kubeconfig.Name())
+		kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), "/etc/rancher/k3s/k3s.yaml", kubeconfig.Name())
 		err = gosh.
 			Command(kubectlCp...).
 			WithContext(ctx).
@@ -80,7 +87,7 @@ func execWithGateway(toExec *gosh.Cmd) {
 
 		// TODO: Get service name/remote port from chart (helm get manifest)
 		// TODO: Make local port configurable with flag
-		kubectlPortForward := kubectl.PortForward(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, "svc/kink-kink-controlplane", map[string]string{"6443": "6443"})
+		kubectlPortForward := kubectl.PortForward(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("svc/kink-%s-controlplane", config.Release.ClusterName), map[string]string{"6443": "6443"})
 		kubectlPortForwardCmd := gosh.
 			Command(kubectlPortForward...).
 			WithContext(ctx).
@@ -98,7 +105,7 @@ func execWithGateway(toExec *gosh.Cmd) {
 		}()
 
 		klog.Info("Waiting for cluster to be accessible on localhost...")
-		kubectlVersion := kubectl.Version(&kubectlFlags, &kubeFlags)
+		kubectlVersion := kubectl.Version(&config.Kubectl, &config.Kubernetes)
 		for err = errors.New("dummy"); err != nil; err = gosh.
 			Command(kubectlVersion...).
 			WithContext(ctx).

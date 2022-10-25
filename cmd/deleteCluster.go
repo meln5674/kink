@@ -22,12 +22,16 @@ var deleteClusterCmd = &cobra.Command{
 		err := func() error {
 
 			ctx := context.TODO()
-
+			var err error
+			err = loadConfig()
+			if err != nil {
+				return err
+			}
 			klog.Info("Deleting release...")
 			// TODO: Add flag to also delete PVCs
 
-			helmDelete := helm.Delete(&helmFlags, &chartFlags, &releaseFlags, &kubeFlags)
-			err := gosh.
+			helmDelete := helm.Delete(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
+			err = gosh.
 				Command(helmDelete...).
 				WithContext(ctx).
 				WithStreams(gosh.ForwardOutErr).

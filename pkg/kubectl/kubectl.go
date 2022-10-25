@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	clientcmd "k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
+
+	"github.com/meln5674/kink/pkg/config/util"
 )
 
 var (
@@ -16,15 +19,25 @@ type KubectlFlags struct {
 	Command []string
 }
 
+func (k *KubectlFlags) Override(k2 *KubectlFlags) {
+	util.OverrideStringSlice(&k.Command, &k2.Command)
+}
+
 type KubeFlags struct {
 	ConfigOverrides clientcmd.ConfigOverrides
 	Kubeconfig      string
 }
 
+func (k *KubeFlags) Override(k2 *KubeFlags) {
+	// TODO: Override client overrides
+	util.OverrideString(&k.Kubeconfig, &k2.Kubeconfig)
+}
+
 func addFlag(cmd *[]string, f *clientcmd.FlagInfo, value, zero interface{}, str string) {
-	if reflect.DeepEqual(value, zero) {
+	if value == nil || reflect.DeepEqual(value, zero) {
 		return
 	}
+	klog.Infof("%s=%#v (%#v)", f.LongName, value, zero)
 	*cmd = append(*cmd, "--"+f.LongName)
 	if str == "" {
 		*cmd = append(*cmd, fmt.Sprintf("%s", value))
@@ -74,7 +87,7 @@ func (k *KubeFlags) Flags() []string {
 		&cmd,
 		&recommendedFlags.AuthOverrideFlags.ImpersonateGroups,
 		k.ConfigOverrides.AuthInfo.ImpersonateGroups,
-		[]string{},
+		[]string(nil),
 		strings.Join(k.ConfigOverrides.AuthInfo.ImpersonateGroups, ","),
 	)
 	addFlag(
@@ -161,7 +174,7 @@ func (k *KubeFlags) Flags() []string {
 		&cmd,
 		&recommendedFlags.Timeout,
 		k.ConfigOverrides.Timeout,
-		"0",
+		"",
 		"",
 	)
 	if k.Kubeconfig != "" {
@@ -173,6 +186,7 @@ func (k *KubeFlags) Flags() []string {
 func GetPods(k *KubectlFlags, ku *KubeFlags, namespace string, labels map[string]string) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "get", "pod", "--output", "json")
 	if namespace != "" {
 		cmd = append(cmd, "--namespace", namespace)
@@ -197,6 +211,7 @@ func GetPods(k *KubectlFlags, ku *KubeFlags, namespace string, labels map[string
 func ConfigCurrentContext(k *KubectlFlags, ku *KubeFlags) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "config", "current-context")
 
 	return cmd
@@ -205,6 +220,7 @@ func ConfigCurrentContext(k *KubectlFlags, ku *KubeFlags) []string {
 func ConfigGetContext(k *KubectlFlags, ku *KubeFlags, context string) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "config", "get", context, "--output", "json")
 
 	return cmd
@@ -213,6 +229,7 @@ func ConfigGetContext(k *KubectlFlags, ku *KubeFlags, context string) []string {
 func PortForward(k *KubectlFlags, ku *KubeFlags, namespace, target string, mappings map[string]string) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "port-forward", target)
 
 	if namespace != "" {
@@ -227,6 +244,7 @@ func PortForward(k *KubectlFlags, ku *KubeFlags, namespace, target string, mappi
 func Exec(k *KubectlFlags, ku *KubeFlags, namespace, target string, stdin, tty bool, exec ...string) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "exec", target)
 	if namespace != "" {
 		cmd = append(cmd, "--namespace", namespace)
@@ -245,6 +263,7 @@ func Exec(k *KubectlFlags, ku *KubeFlags, namespace, target string, stdin, tty b
 func Cp(k *KubectlFlags, ku *KubeFlags, namespace, target, src, dest string) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "cp")
 	if namespace != "" {
 		cmd = append(cmd, "--namespace", namespace)
@@ -256,6 +275,7 @@ func Cp(k *KubectlFlags, ku *KubeFlags, namespace, target, src, dest string) []s
 func Version(k *KubectlFlags, ku *KubeFlags) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "version")
 	return cmd
 
@@ -264,6 +284,7 @@ func Version(k *KubectlFlags, ku *KubeFlags) []string {
 func ConfigSetCluster(k *KubectlFlags, ku *KubeFlags, cluster string, data map[string]string) []string {
 	cmd := make([]string, len(k.Command))
 	copy(cmd, k.Command)
+	cmd = append(cmd, ku.Flags()...)
 	cmd = append(cmd, "config", "set-cluster", cluster)
 	for k, v := range data {
 		cmd = append(cmd, fmt.Sprintf("--%s=%s", k, v))

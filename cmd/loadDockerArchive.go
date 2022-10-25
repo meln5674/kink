@@ -44,6 +44,11 @@ func init() {
 
 func loadArchives(archives ...string) {
 	err := func() error {
+
+		err := loadConfig()
+		if err != nil {
+			return err
+		}
 		if len(archives) == 0 {
 			klog.Fatal("No images specified")
 		}
@@ -56,8 +61,8 @@ func loadArchives(archives ...string) {
 		for _, archive := range dockerArchivesToLoad {
 			for _, pod := range pods.Items {
 				kubectlExec := kubectl.Exec(
-					&kubectlFlags, &kubeFlags,
-					releaseFlags.Namespace, pod.Name,
+					&config.Kubectl, &config.Kubernetes,
+					config.Release.Namespace, pod.Name,
 					true, false,
 					"k3s", "ctr", "image", "import", "-",
 				)

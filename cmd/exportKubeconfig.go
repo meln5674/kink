@@ -28,20 +28,26 @@ var exportKubeconfigCmd = &cobra.Command{
 		shCmd.Run(cmd, []string{fmt.Sprintf("cp ${KUBECONFIG} %s", exportedKubeconfigPath)})
 		err := func() error {
 			ctx := context.TODO()
-			kubeFlagsCopy := kubeFlags
+
+			var err error
+			err = loadConfig()
+			if err != nil {
+				return err
+			}
+			kubeFlagsCopy := config.Kubernetes
 			var setCluster []string
 			if exportedKubeconfigInCluster {
 				// TODO: Pull this out of the chart
 				// TODO: Figure out the current namespace with the context
-				setCluster = kubectl.ConfigSetCluster(&kubectlFlags, &kubeFlagsCopy, "default", map[string]string{"server": fmt.Sprintf("kink-%s.%s.svc.cluster.local:6443", releaseFlags.ClusterName, releaseFlags.Namespace)})
+				setCluster = kubectl.ConfigSetCluster(&config.Kubectl, &kubeFlagsCopy, "default", map[string]string{"server": fmt.Sprintf("kink-%s.%s.svc.cluster.local:6443", config.Release.ClusterName, config.Release.Namespace)})
 			}
 			if exportedKubeconfigHostOverride != "" {
-				setCluster = kubectl.ConfigSetCluster(&kubectlFlags, &kubeFlagsCopy, "default", map[string]string{"server": exportedKubeconfigHostOverride})
+				setCluster = kubectl.ConfigSetCluster(&config.Kubectl, &kubeFlagsCopy, "default", map[string]string{"server": exportedKubeconfigHostOverride})
 			}
 			if len(setCluster) == 0 {
 				return nil
 			}
-			err := gosh.
+			err = gosh.
 				Command(setCluster...).
 				WithContext(ctx).
 				WithStreams(gosh.ForwardOutErr).

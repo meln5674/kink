@@ -23,11 +23,15 @@ var createClusterCmd = &cobra.Command{
 		err := func() error {
 			ctx := context.TODO()
 			var err error
-			if chartFlags.IsLocalChart() {
+			err = loadConfig()
+			if err != nil {
+				return err
+			}
+			if config.Chart.IsLocalChart() {
 				klog.Info("Using local chart, skipping `repo add`...")
 			} else {
 				klog.Info("Ensuring helm repo exists...")
-				repoAdd := helm.RepoAdd(&helmFlags, &chartFlags, &releaseFlags)
+				repoAdd := helm.RepoAdd(&config.Helm, &config.Chart, &config.Release)
 				err = gosh.
 					Command(repoAdd...).
 					WithContext(ctx).
@@ -38,7 +42,7 @@ var createClusterCmd = &cobra.Command{
 				}
 			}
 			klog.Info("Deploying chart...")
-			helmUpgrade := helm.Upgrade(&helmFlags, &chartFlags, &releaseFlags, &kubeFlags)
+			helmUpgrade := helm.Upgrade(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
 			err = gosh.
 				Command(helmUpgrade...).
 				WithContext(ctx).

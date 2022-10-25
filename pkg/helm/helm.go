@@ -2,8 +2,10 @@ package helm
 
 import (
 	"fmt"
-	"github.com/meln5674/kink/pkg/kubectl"
 	"strings"
+
+	"github.com/meln5674/kink/pkg/config/util"
+	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 const (
@@ -15,13 +17,23 @@ func IsKinkRelease(name string) bool {
 }
 
 type HelmFlags struct {
-	Command []string
+	Command []string `json:"command"`
+}
+
+func (h *HelmFlags) Override(h2 *HelmFlags) {
+	util.OverrideStringSlice(&h.Command, &h2.Command)
 }
 
 type ChartFlags struct {
-	RepositoryURL string
-	ChartName     string
-	Version       string
+	RepositoryURL string `json:"repositoryURL"`
+	ChartName     string `json:"chart"`
+	Version       string `json:"version"`
+}
+
+func (c *ChartFlags) Override(c2 *ChartFlags) {
+	util.OverrideString(&c.RepositoryURL, &c2.RepositoryURL)
+	util.OverrideString(&c.ChartName, &c2.ChartName)
+	util.OverrideString(&c.Version, &c2.Version)
 }
 
 func (c *ChartFlags) IsLocalChart() bool {
@@ -41,10 +53,17 @@ func (c *ChartFlags) FullChartName() string {
 }
 
 type ReleaseFlags struct {
-	Namespace   string
-	ClusterName string
-	Values      []string
-	Set         []string
+	Namespace   string            `json:"namespace"`
+	ClusterName string            `json:"clusterName"`
+	Values      []string          `json:"values"`
+	Set         map[string]string `json:"set"`
+}
+
+func (r *ReleaseFlags) Override(r2 *ReleaseFlags) {
+	util.OverrideString(&r.Namespace, &r2.Namespace)
+	util.OverrideString(&r.ClusterName, &r2.ClusterName)
+	util.OverrideStringSlice(&r.Values, &r2.Values)
+	util.OverrideStringToString(&r.Set, &r2.Set)
 }
 
 func (r *ReleaseFlags) ReleaseName() string {
@@ -89,8 +108,8 @@ func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags)
 	for _, values := range r.Values {
 		cmd = append(cmd, "--values", values)
 	}
-	for _, set := range r.Set {
-		cmd = append(cmd, "--set", set)
+	for k, v := range r.Set {
+		cmd = append(cmd, "--set", fmt.Sprintf("%s=%s", k, v))
 	}
 	cmd = append(cmd, r.ExtraLabelFlags()...)
 	cmd = append(cmd, k.Flags()...)

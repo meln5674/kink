@@ -6,7 +6,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/meln5674/gosh"
 	"github.com/spf13/cobra"
@@ -23,9 +22,6 @@ var (
 var loadCmd = &cobra.Command{
 	Use:   "load",
 	Short: "Loads images into nodes from an archive or docker daemon on this host",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("load called")
-	},
 }
 
 func init() {
@@ -45,7 +41,7 @@ func init() {
 
 func getPods(ctx context.Context) (*corev1.PodList, error) {
 	var pods corev1.PodList
-	getPods := kubectl.GetPods(&kubectlFlags, &kubeFlags, releaseFlags.Namespace, releaseFlags.ExtraLabels())
+	getPods := kubectl.GetPods(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, config.Release.ExtraLabels())
 	err := gosh.
 		Command(getPods...).
 		WithContext(ctx).

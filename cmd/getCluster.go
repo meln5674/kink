@@ -24,10 +24,15 @@ var getClusterCmd = &cobra.Command{
 
 			ctx := context.TODO()
 
+			var err error
+			err = loadConfig()
+			if err != nil {
+				return err
+			}
 			releases := make([]map[string]interface{}, 0)
 
-			helmList := helm.List(&helmFlags, &chartFlags, &releaseFlags, &kubeFlags)
-			err := gosh.
+			helmList := helm.List(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
+			err = gosh.
 				Command(helmList...).
 				WithContext(ctx).
 				WithStreams(
@@ -43,7 +48,7 @@ var getClusterCmd = &cobra.Command{
 				if !helm.IsKinkRelease(release["name"].(string)) {
 					continue
 				}
-				if releaseFlags.Namespace != "" {
+				if config.Release.Namespace != "" {
 					fmt.Printf("%s %s\n", release["namespace"], release["name"])
 				} else {
 					fmt.Println(release["name"])

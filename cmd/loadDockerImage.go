@@ -29,6 +29,10 @@ var dockerImageCmd = &cobra.Command{
 		}
 		err := func() error {
 			ctx := context.TODO()
+			err := loadConfig()
+			if err != nil {
+				return err
+			}
 			pods, err := getPods(ctx)
 			if err != nil {
 				return err
@@ -36,12 +40,12 @@ var dockerImageCmd = &cobra.Command{
 			imports := make([]gosh.Commander, 0, len(pods.Items))
 			for _, pod := range pods.Items {
 				kubectlExec := kubectl.Exec(
-					&kubectlFlags, &kubeFlags,
-					releaseFlags.Namespace, pod.Name,
+					&config.Kubectl, &config.Kubernetes,
+					config.Release.Namespace, pod.Name,
 					true, false,
 					"k3s", "ctr", "image", "import", "-",
 				)
-				dockerSave := docker.Save(&dockerFlags, dockerImagesToLoad...)
+				dockerSave := docker.Save(&config.Docker, dockerImagesToLoad...)
 				pipeline := gosh.Pipeline(
 					gosh.Command(dockerSave...).WithContext(ctx),
 					gosh.Command(kubectlExec...).WithContext(ctx),

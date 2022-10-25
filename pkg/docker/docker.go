@@ -1,8 +1,17 @@
 package docker
 
+import (
+	"github.com/meln5674/kink/pkg/config/util"
+)
+
 type DockerFlags struct {
-	Command []string
-	Context string
+	Command []string `json:"command"`
+	Context string   `json:"context"`
+}
+
+func (d *DockerFlags) Override(d2 *DockerFlags) {
+	util.OverrideStringSlice(&d.Command, &d2.Command)
+	util.OverrideString(&d.Context, &d2.Context)
 }
 
 func Save(d *DockerFlags, images ...string) []string {
