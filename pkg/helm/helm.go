@@ -136,3 +136,13 @@ func List(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []
 
 	return cmd
 }
+
+func GetValues(h *HelmFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
+	cmd := make([]string, len(h.Command))
+	copy(cmd, h.Command)
+
+	cmd = append(cmd, "get", "values", r.ReleaseName(), "--output", "json")
+	cmd = append(cmd, k.Flags()...)
+
+	return cmd
+}

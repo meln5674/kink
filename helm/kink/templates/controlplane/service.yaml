@@ -1,3 +1,7 @@
+{{- $ports := list "api" "kubelet-metrics" "etcd-client" "etcd-peer" }}
+{{- if .Values.rke2.enabled }}
+{{- $ports = concat $ports (list "rke2-discover") }}
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,7 +11,7 @@ metadata:
 spec:
   type: {{ .Values.controlplane.service.type }}
   ports:
-    {{- range $port := list "api" "kubelet-metrics" "etcd-client" "etcd-peer" }}
+    {{- range $port := $ports }}
     - port: {{ (index $.Values.controlplane.service $port).port }}
       targetPort: {{ $port }}
       protocol: TCP
@@ -27,7 +31,7 @@ spec:
   type: {{ .Values.controlplane.service.type }}
   publishNotReadyAddresses: true
   ports:
-    {{- range $port := list "api" "kubelet-metrics" "etcd-client" "etcd-peer" }}
+    {{- range $port := $ports }}
     - port: {{ (index $.Values.controlplane.service $port).port }}
       targetPort: {{ $port }}
       protocol: TCP

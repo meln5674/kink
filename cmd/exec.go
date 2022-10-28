@@ -23,6 +23,11 @@ var (
 	execCommand []string
 )
 
+const (
+	k3sKubeconfigPath  = "/etc/rancher/k3s/k3s.yaml"
+	rke2KubeconfigPath = "/etc/rancher/rke2/rke2.yaml"
+)
+
 // execCmd represents the exec command
 var execCmd = &cobra.Command{
 	Use:   "exec",
@@ -69,13 +74,24 @@ func execWithGateway(toExec *gosh.Cmd) {
 		if err != nil {
 			return nil, err
 		}
+
+		err = getReleaseValues(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		kubeconfigPath := k3sKubeconfigPath
+		if rke2Enabled() {
+			kubeconfigPath = rke2KubeconfigPath
+		}
+
 		kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
 		defer kubeconfig.Close()
 		defer os.Remove(kubeconfig.Name())
 		if err != nil {
 			return nil, err
 		}
-		kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), "/etc/rancher/k3s/k3s.yaml", kubeconfig.Name())
+		kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), kubeconfigPath, kubeconfig.Name())
 		err = gosh.
 			Command(kubectlCp...).
 			WithContext(ctx).

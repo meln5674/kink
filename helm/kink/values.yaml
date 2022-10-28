@@ -73,6 +73,8 @@ controlplane:
       port: 2379
     etcd-peer:
       port: 2380
+    rke2-discover:
+      port: 9345
 
     
   resources: {}
@@ -191,3 +193,6 @@ token:
     tokenKey: token
 
 clusterDomain: cluster.local
+
+rke2:
+  enabled: true

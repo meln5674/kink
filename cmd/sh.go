@@ -5,6 +5,8 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"strings"
+
 	"github.com/meln5674/gosh"
 	"github.com/spf13/cobra"
 )
@@ -29,8 +31,11 @@ clean up the temporary kubeconfig once it has exited.
 If no arguments are provided, this instead runs an interactive shell, allowing you to, for example
 interactively use tools like kubectl and helm to interact with your isolated cluster.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		sh := gosh.Shell(args[0])
-		if len(args) == 0 {
+		var sh *gosh.Cmd
+		if len(args) != 0 {
+			sh = gosh.Shell(strings.Join(args, " "))
+		} else {
+			sh = gosh.Command("")
 			sh = gosh.Command(sh.Cmd.Args[0])
 		}
 		execWithGateway(sh)

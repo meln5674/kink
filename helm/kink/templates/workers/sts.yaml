@@ -1,3 +1,11 @@
+{{- $k8sBin := "k3s" }}
+{{- $dataDir := "/var/lib/rancher/k3s" }}
+{{- $tokenVar := "K3S_TOKEN" }}
+{{- if .Values.rke2.enabled }}
+{{- $k8sBin = "rke2" }}
+{{- $dataDir = "/var/lib/rancher/rke2" }}
+{{- $tokenVar = "RKE2_TOKEN" }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -34,7 +42,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
-          - name: K3S_TOKEN
+          - name: '{{ $tokenVar }}'
             valueFrom:
               secretKeyRef:
                 {{- if .Values.token.existingSecret.name }}
@@ -44,9 +52,10 @@ spec:
                 name: {{ include "kink.fullname" . }}
                 key: token
                 {{- end }}
+          command: [ '{{ $k8sBin }}' ]
           args:
           - agent
-          - --server={{ include "kink.controlplane.url" . }}
+          - '--server={{ include "kink.controlplane.url" . }}'
           ports:
             - name: kubelet-metrics
               containerPort: 10250
@@ -73,8 +82,8 @@ spec:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:
           - name: data
-            mountPath: /var/lib/rancher/k3s
-            subPath: var/lib/rancher/k3s
+            mountPath: '{{ $dataDir }}'
+            subPath: '{{ $dataDir | trimPrefix "/" }}'
           - name: data
             mountPath: /etc/rancher
             subPath: etc/rancher

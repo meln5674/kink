@@ -14,12 +14,19 @@ go build -o bin/kink.cover main.go
 TEST_TIMESTAMP=$(date +%s)
 KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME=kink}
 
+KINK_CLUSTER_NAME=it
+KINK_CONFIG_FILE=integration-test/kink.config.yaml
+
+KINK_COMMAND=( bin/kink.cover --config "${KINK_CONFIG_FILE}" --name "${KINK_CLUSTER_NAME}" -v11 )
+
 IMAGE_REPO=${IMAGE_REPO:-local.host/meln5674/kink}
 IMAGE_TAG=${IMAGE_TAG:-${TEST_TIMESTAMP}}
 
 BUILT_IMAGE=${IMAGE_REPO}:${IMAGE_TAG}
 
 export DOCKER_BUILDKIT=1
+
+KIND_KUBECONFIG=./integration-test/kind.kubeconfig
 
 docker build -t "${BUILT_IMAGE}" .
 CLUSTER_EXISTS="$(
@@ -30,38 +37,43 @@ CLUSTER_EXISTS="$(
 if [ -z "${CLUSTER_EXISTS}" ] || ([ -n "${CLUSTER_EXISTS}" ] && [ -z "${KINK_IT_NO_CLEANUP}" ] && [ -z "${KINK_IT_CLEANUP}"]); then
     kind create cluster \
         --name="${KIND_CLUSTER_NAME}" \
-        --kubeconfig="${KUBECONFIG}"
+        --kubeconfig="${KIND_KUBECONFIG}"
 fi
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
     TRAP_CMD="kind delete cluster --name='${KIND_CLUSTER_NAME}'"
     trap "${TRAP_CMD}" EXIT
 fi
 
+export KUBECONFIG="${KIND_KUBECONFIG}"
+
 if [ -n "${KINK_IT_CLEANUP}" ]; then
-    kink delete cluster
+    "${KINK_COMMAND[@]}" delete cluster
     kind delete cluster --name="${KIND_CLUSTER_NAME}"
     exit 0
 fi
 
 kind load docker-image "${BUILT_IMAGE}" --name="${KIND_CLUSTER_NAME}"
 
-KINK_CLUSTER_NAME=it
-KINK_CONFIG_FILE=integration-test/kink.config.yaml
 
-KINK_COMMAND=( bin/kink.cover --config "${KINK_CONFIG_FILE}" --name "${KINK_CLUSTER_NAME}" -v11 )
+if ! ("${KINK_COMMAND[@]}" get cluster | tee /dev/stderr | grep "kink-${KINK_CLUSTER_NAME}") || [ -z "${KINK_IT_NO_KINK_CREATE}" ]; then
+    "${KINK_COMMAND[@]}" create cluster \
+        --set image.repository="${IMAGE_REPO}" \
+        --set image.tag="${IMAGE_TAG}"
+fi 
 
-
-"${KINK_COMMAND[@]}" create cluster \
-    --set image.repository="${IMAGE_REPO}" \
-    --set image.tag="${IMAGE_TAG}"
-    
-
-"${KINK_COMMAND[@]}" get cluster | tee /dev/stderr | grep "kink-${KINK_CLUSTER_NAME}"
 
 
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
     "${KINK_COMMAND[@]}" delete cluster
 fi
+
+"${KINK_COMMAND[@]}" sh -- '
+    while ! kubectl version ; do
+        sleep 10;
+    done
+    kubectl cluster-info
+    kubectl get nodes
+'
 
 WORDPRESS_CHART_VERSION=15.2.5
 
@@ -103,6 +115,9 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
         --set memcached.enabled=true \
         --set service.type=ClusterIP \
         --set ingress.enabled=true \
+        --set image.pullPolicy=Never \
+        --set mariadb.image.pullPolicy=Never \
+        --set memcached.image.pullPolicy=Never \
         --debug
 
 
@@ -120,7 +135,7 @@ KINK_KUBECONFIG=integration-test/kink.kubeconfig
 cat "${KINK_KUBECONFIG}"
 
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
-    TRAP_CMD="bin/kink.cover exec -- helm delete wordpress ; ${TRAP_CMD}"
+    TRAP_CMD="${KINK_COMMAND[@]} exec -- helm delete wordpress ; ${TRAP_CMD}"
     trap "${TRAP_CMD}" EXIT
 fi
 

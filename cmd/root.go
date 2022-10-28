@@ -5,6 +5,7 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	goflag "flag"
 	"fmt"
 	"io/ioutil"
@@ -15,13 +16,17 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 
+	"github.com/meln5674/gosh"
+
 	cfg "github.com/meln5674/kink/pkg/config"
+	"github.com/meln5674/kink/pkg/helm"
 )
 
 var (
 	config          cfg.Config
 	configOverrides cfg.Config
 	configPath      string
+	releaseValues   map[string]interface{}
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -107,4 +112,24 @@ func loadConfig() error {
 	//klog.Infof("%#v", config)
 
 	return nil
+}
+
+func getReleaseValues(ctx context.Context) error {
+	return gosh.
+		Command(helm.GetValues(&config.Helm, &config.Release, &config.Kubernetes)...).
+		WithContext(ctx).
+		WithStreams(gosh.FuncOut(gosh.SaveJSON(&releaseValues))).
+		Run()
+}
+
+func rke2Enabled() bool {
+	rke2, ok := releaseValues["rke2"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	enabled, ok := rke2["enabled"].(bool)
+	if !ok {
+		return false
+	}
+	return enabled
 }

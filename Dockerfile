@@ -14,7 +14,11 @@ RUN K3S_FILENAME="k3s$([ -n "${ARCH}" ] && echo "-${ARCH}" ; exit 0 )" \
  && curl -fvL "${K3S_URL}" > /usr/local/bin/k3s \
  && chmod 755 /usr/local/bin/k3s
 
-VOLUME /var/lib/rancher/k3s
+ARG INSTALL_RKE2_VERSION=v1.25.3+rke2r1
+RUN  curl -fsv https://get.rke2.io/ \
+  | INSTALL_RKE2_SKIP_RELOAD=1 sh -
+
+VOLUME /var/lib/rancher/
 VOLUME /var/lib/kubelet
 VOLUME /etc/rancher
 

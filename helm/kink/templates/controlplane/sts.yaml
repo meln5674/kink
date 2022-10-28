@@ -1,3 +1,11 @@
+{{- $k8sBin := "k3s" }}
+{{- $dataDir := "/var/lib/rancher/k3s" }}
+{{- $tokenVar := "K3S_TOKEN" }}
+{{- if .Values.rke2.enabled }}
+{{- $k8sBin = "rke2" }}
+{{- $dataDir = "/var/lib/rancher/rke2" }}
+{{- $tokenVar = "RKE2_TOKEN" }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -27,6 +35,62 @@ spec:
       serviceAccountName: {{ include "kink.controlplane.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.controlplane.podSecurityContext | nindent 8 }}
+      {{- if false }}
+      initContainers:
+        - name: create-token-secret
+          securityContext:
+            {{- toYaml .Values.controlplane.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: '{{ $tokenVar }}'
+            valueFrom:
+              secretKeyRef:
+                {{- if .Values.token.existingSecret.name }}
+                name: {{ .Values.token.existingSecret.name }}
+                key:  {{ .Values.token.existingSecret.key }}
+                {{- else }}
+                name: {{ include "kink.fullname" . }}
+                key: token
+                {{- end }}
+          command: [sh,-ce]
+          args:
+          - |
+            {{- if gt (int .Values.controlplane.replicaCount) 1 }}
+            if [ "${POD_NAME}" = '{{ include "kink.controlplane.fullname" . }}-0' ]; then
+              exec '{{ $k8sBin }}' server \
+                '--data-dir={{ $dataDir }}' \
+                --cluster-init
+            else 
+              exec '{{ $k8sBin }}' server \
+                '--data-dir={{ $dataDir }}' \
+                --server={{ include "kink.controlplane.url" . }}
+            fi
+            {{- else }}
+            '{{ $k8sBin }}' server \
+              '--data-dir={{ $dataDir }}' \
+              '--tls-san={{ .Release.Name }}' \
+              '--tls-san={{ include "kink.controlplane.fullname" . }}' \
+              '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}' \
+              '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc' \
+              '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}' \
+          - '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
+            {{- end }} &
+            RKE_PID=$!
+            while ! [ -f '{{ $dataDir }}/server/node-token' ]; then
+              echo 'Waiting for node-token to exist'
+              sleep 10;
+            done
+            kill -s INT "${RKE_PID}"
+            k3s kubectl create secret generic '{{ include "kink.fullname" . }}-node-token' --from-file '{{ $tokenVar }}={{ $dataDir }}/server/node-token'
+          command: [ '{{ $k8sBin }}' ]
+          args:
+
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -38,7 +102,7 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.name
-          - name: K3S_TOKEN
+          - name: '{{ $tokenVar }}'
             valueFrom:
               secretKeyRef:
                 {{- if .Values.token.existingSecret.name }}
@@ -48,23 +112,24 @@ spec:
                 name: {{ include "kink.fullname" . }}
                 key: token
                 {{- end }}
-          {{- if gt .Values.controlplane.replicaCount 1 }}
+          {{- if gt (int .Values.controlplane.replicaCount) 1 }}
           command: [sh,-ce]
           args:
           - |
             if [ "${POD_NAME}" = '{{ include "kink.controlplane.fullname" . }}-0' ]; then
-              exec k3s server \
-                --data-dir=/var/lib/rancher/k3s \
+              exec '{{ $k8sBin }}' server \
+                '--data-dir={{ $dataDir }}' \
                 --cluster-init
             else 
-              exec k3s server \
-                --data-dir=/var/lib/rancher/k3s \
+              exec '{{ $k8sBin }}' server \
+                '--data-dir={{ $dataDir }}' \
                 --server={{ include "kink.controlplane.url" . }}
            fi
           {{- else }}
+          command: [ '{{ $k8sBin }}' ]
           args:
           - server
-          - --data-dir=/var/lib/rancher/k3s
+          - '--data-dir={{ $dataDir }}'
           - '--tls-san={{ .Release.Name }}'
           - '--tls-san={{ include "kink.controlplane.fullname" . }}'
           - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}'
@@ -85,6 +150,11 @@ spec:
             - name: etcd-peer
               containerPort: 2380
               protocol: TCP
+            {{- if .Values.rke2.enabled }}
+            - name: rke2-discover
+              containerPort: 9345
+              protocol: TCP
+            {{- end }}
 
           startupProbe:
             tcpSocket:
@@ -132,8 +202,8 @@ spec:
             {{- toYaml .Values.controlplane.resources | nindent 12 }}
           volumeMounts:
           - name: data
-            mountPath: /var/lib/rancher/k3s
-            subPath: var/lib/rancher/k3s
+            mountPath: '{{ $dataDir }}'
+            subPath: '{{ $dataDir | trimPrefix "/" }}'
           - name: data
             mountPath: /etc/rancher
             subPath: etc/rancher

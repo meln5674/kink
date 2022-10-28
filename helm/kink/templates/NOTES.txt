@@ -1,3 +1,6 @@
-{{- if gt .Values.controlplane.replicaCount 1 }}
+{{- if gt (int .Values.controlplane.replicaCount) 1 }}
 WARNING: HA controlplane is currently VERY fragile. Do not rely on this. Deleting a controlplane pod will require manually removing the old pod's IP from the embedded etcd with etcdctl
+{{- end }}
+{{- if .Values.rke2.enabled }}
+WARNING: RKE2 support is currently very experimental. It does not include a storage provisioner, ingress is not yet functional, and re-creating the controlplane pod will result in a non-functional cluster.
 {{- end }}

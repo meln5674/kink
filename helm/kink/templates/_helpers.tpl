@@ -113,5 +113,9 @@ Create the name of the service account to use
 {{- end }}
 
 {{- define "kink.controlplane.url" -}}
+{{- if .Values.rke2.enabled -}}
+https://{{ include "kink.controlplane.fullname" . }}:{{ (index .Values.controlplane.service "rke2-discover").port }}
+{{- else -}}
 https://{{ include "kink.controlplane.fullname" . }}:{{ .Values.controlplane.service.api.port }}
+{{- end -}}
 {{- end -}}
