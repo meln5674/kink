@@ -12,6 +12,4 @@ release:
     controlplane.replicaCount: "3"
     worker.replicaCount: "1"
     controlplane.persistence.enabled: "true"
-    worker.persistence.enabled: "true" 
-    rke2.enabled: "true"
-
+    worker.persistence.enabled: "true"

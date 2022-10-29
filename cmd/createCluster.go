@@ -52,6 +52,9 @@ var createClusterCmd = &cobra.Command{
 				return err
 			}
 			klog.Info("Deployed chart, your cluster is now ready to use")
+			if kubeconfigToExportPath != "" {
+				exportKubeconfigCmd.Run(cmd, args)
+			}
 			return nil
 		}()
 		if err != nil {
@@ -72,4 +75,7 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// createClusterCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	createClusterCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
+	createClusterCmd.Flags().BoolVar(&exportedKubeconfigInCluster, "conrolplane-in-cluster", false, "Replace the api server address with the address to use if in the same cluster")
+	createClusterCmd.Flags().StringVar(&exportedKubeconfigHostOverride, "controlplane-server", "", "Override server name for kubeconfig")
 }

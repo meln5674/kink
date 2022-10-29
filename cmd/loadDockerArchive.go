@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/meln5674/gosh"
+	"github.com/meln5674/kink/pkg/containerd"
 	"github.com/meln5674/kink/pkg/kubectl"
 )
 
@@ -45,26 +46,33 @@ func init() {
 func loadArchives(archives ...string) {
 	err := func() error {
 
+		ctx := context.TODO()
+
 		err := loadConfig()
 		if err != nil {
 			return err
 		}
+		err = getReleaseValues(ctx)
+		if err != nil {
+			return err
+		}
+		parseImportImageFlags()
+
 		if len(archives) == 0 {
 			klog.Fatal("No images specified")
 		}
-		ctx := context.TODO()
 		pods, err := getPods(ctx)
 		if err != nil {
 			return err
 		}
-		imports := make([]gosh.Commander, 0, len(pods.Items)*len(dockerArchivesToLoad))
-		for _, archive := range dockerArchivesToLoad {
+		imports := make([]gosh.Commander, 0, len(pods.Items)*len(archives))
+		for _, archive := range archives {
 			for _, pod := range pods.Items {
 				kubectlExec := kubectl.Exec(
 					&config.Kubectl, &config.Kubernetes,
 					config.Release.Namespace, pod.Name,
 					true, false,
-					"k3s", "ctr", "image", "import", "-",
+					containerd.ImportImage(&importImageFlags, "-")...,
 				)
 				cmd := gosh.
 					Command(kubectlExec...).

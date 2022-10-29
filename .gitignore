@@ -4,3 +4,6 @@ kubeconfig
 *.kubeconfig
 bin/
 *.tar
+integration-test/last-image
+integration-test/log
+charts/local-path-provisioner

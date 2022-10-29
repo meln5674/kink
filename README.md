@@ -84,3 +84,13 @@ kubectl --kubeconfig=./kind.kubeconfig ...
 # ...
 kubectl --kubeconfig=./kink.kubeconfig ...
 ```
+
+## Other Configurations
+
+### RKE2
+
+RKE2 is derrived from k3s, and is similar enough that you can switch to using it by adding `--set rke2.enabled=true` in your `kink create cluster` command. Do note, that due to changes in how the embedded storage is handled, RKE2 requires an HA controlplane. Note that switching between k3s and RKE2 on the same cluster is not supported, the new cluster will not contain any of your previous state.
+
+### Single-node
+
+If having two nodes is still two heavyweight, you can use a single-node setup by adding `--set worker.replicaCount=0,controlplane.defaultTaint=false`. For obvious reasons, this will not work with RKE2.

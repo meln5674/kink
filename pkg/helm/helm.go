@@ -53,10 +53,11 @@ func (c *ChartFlags) FullChartName() string {
 }
 
 type ReleaseFlags struct {
-	Namespace   string            `json:"namespace"`
-	ClusterName string            `json:"clusterName"`
-	Values      []string          `json:"values"`
-	Set         map[string]string `json:"set"`
+	Namespace    string            `json:"namespace"`
+	ClusterName  string            `json:"clusterName"`
+	Values       []string          `json:"values"`
+	Set          map[string]string `json:"set"`
+	UpgradeFlags []string          `json:"upgradeFlags"`
 }
 
 func (r *ReleaseFlags) Override(r2 *ReleaseFlags) {
@@ -112,6 +113,7 @@ func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags)
 		cmd = append(cmd, "--set", fmt.Sprintf("%s=%s", k, v))
 	}
 	cmd = append(cmd, r.ExtraLabelFlags()...)
+	cmd = append(cmd, r.UpgradeFlags...)
 	cmd = append(cmd, k.Flags()...)
 	return cmd
 }

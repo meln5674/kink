@@ -1,6 +1,12 @@
 {{- if gt (int .Values.controlplane.replicaCount) 1 }}
-WARNING: HA controlplane is currently VERY fragile. Do not rely on this. Deleting a controlplane pod will require manually removing the old pod's IP from the embedded etcd with etcdctl
+WARNING: HA controlplane is currently somewhat fragile. If all of your controlplane nodes stop running the same time, your cluster will become inoperable without manual intervention. Additionally, if you decide to scale down back to a single controlplane node, you will need to manually remove the additional nodes from etcd before the cluster will function again.
 {{- end }}
 {{- if .Values.rke2.enabled }}
-WARNING: RKE2 support is currently very experimental. It does not include a storage provisioner, ingress is not yet functional, and re-creating the controlplane pod will result in a non-functional cluster.
+WARNING: RKE2 support is currently very experimental. It does not include a storage provisioner, and ingress is not yet functional.
+{{- end }}
+{{- if and .Values.rke2.enabled (not (index .Values "local-path-provisioner").enabled) (not (index .Values "local-path-provisioner").silenceWarning) }}
+WARNING: RKE2 does not provider a storage provisioner by default, please --set local-path-provisioner=true if you want to use PVCs in your cluster, or --set local-path-provisioner.silenceWarning to silence this message.
+{{- end }}
+{{- if and (.Values.rke2.enabled) (not (gt (int .Values.controlplane.replicaCount) 1)) }}
+{{ fail "ERROR: RKE2 requires a High availability controlplane. Please --set controlplane.replicaCount=3 or greater" }}
 {{- end }}

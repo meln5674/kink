@@ -5,6 +5,7 @@ kubernetes:
 chart:
     chart: ./helm/kink
 release:
+  upgradeFlags: ['--timeout=15m']
   set:
     image.pullPolicy: Never
     controlplane.securityContext.privileged: "true"
@@ -14,4 +15,4 @@ release:
     controlplane.persistence.enabled: "true"
     worker.persistence.enabled: "true" 
     rke2.enabled: "true"
-
+    local-path-provisioner.enabled: "true"

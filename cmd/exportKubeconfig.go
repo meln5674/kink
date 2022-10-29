@@ -17,7 +17,7 @@ import (
 var (
 	exportedKubeconfigInCluster    bool
 	exportedKubeconfigHostOverride string
-	exportedKubeconfigPath         string
+	kubeconfigToExportPath         string
 )
 
 // exportKubeconfigCmd represents the exportKubeconfig command
@@ -25,7 +25,7 @@ var exportKubeconfigCmd = &cobra.Command{
 	Use:   "kubeconfig",
 	Short: "Exports cluster kubeconfig",
 	Run: func(cmd *cobra.Command, args []string) {
-		shCmd.Run(cmd, []string{fmt.Sprintf("cp ${KUBECONFIG} %s", exportedKubeconfigPath)})
+		shCmd.Run(cmd, []string{fmt.Sprintf("cp ${KUBECONFIG} %s", kubeconfigToExportPath)})
 		err := func() error {
 			ctx := context.TODO()
 
@@ -75,7 +75,7 @@ func init() {
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	exportKubeconfigCmd.Flags().StringVar(&exportedKubeconfigPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
+	exportKubeconfigCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
 	exportKubeconfigCmd.Flags().BoolVar(&exportedKubeconfigInCluster, "conrolplane-in-cluster", false, "Replace the api server address with the address to use if in the same cluster")
 	exportKubeconfigCmd.Flags().StringVar(&exportedKubeconfigHostOverride, "controlplane-server", "", "Override server name for kubeconfig")
 

@@ -14,7 +14,6 @@ metadata:
     {{- include "kink.controlplane.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "kink.controlplane.fullname" . }}
-  podManagementPolicy: "Parallel"
   replicas: {{ .Values.controlplane.replicaCount }}
   selector:
     matchLabels:
@@ -35,9 +34,9 @@ spec:
       serviceAccountName: {{ include "kink.controlplane.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.controlplane.podSecurityContext | nindent 8 }}
-      {{- if false }}
+      {{- if gt (int .Values.controlplane.replicaCount) 1 }}
       initContainers:
-        - name: create-token-secret
+        - name: init
           securityContext:
             {{- toYaml .Values.controlplane.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -47,49 +46,51 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.name
-          - name: '{{ $tokenVar }}'
+          - name: POD_IP
             valueFrom:
-              secretKeyRef:
-                {{- if .Values.token.existingSecret.name }}
-                name: {{ .Values.token.existingSecret.name }}
-                key:  {{ .Values.token.existingSecret.key }}
-                {{- else }}
-                name: {{ include "kink.fullname" . }}
-                key: token
-                {{- end }}
-          command: [sh,-ce]
+              fieldRef:
+                fieldPath: status.podIP
+          - name: ETCD_CONFIG_FILE
+            value: '{{ $dataDir }}/server/db/etcd/config'
+          - name: ETCD_NAME_FILE
+            value: '{{ $dataDir }}/server/db/etcd/name'
+          command: [sh, -c]
           args:
-          - |
-            {{- if gt (int .Values.controlplane.replicaCount) 1 }}
-            if [ "${POD_NAME}" = '{{ include "kink.controlplane.fullname" . }}-0' ]; then
-              exec '{{ $k8sBin }}' server \
-                '--data-dir={{ $dataDir }}' \
-                --cluster-init
-            else 
-              exec '{{ $k8sBin }}' server \
-                '--data-dir={{ $dataDir }}' \
-                --server={{ include "kink.controlplane.url" . }}
-            fi
-            {{- else }}
-            '{{ $k8sBin }}' server \
-              '--data-dir={{ $dataDir }}' \
-              '--tls-san={{ .Release.Name }}' \
-              '--tls-san={{ include "kink.controlplane.fullname" . }}' \
-              '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}' \
-              '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc' \
-              '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}' \
-          - '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
-            {{- end }} &
-            RKE_PID=$!
-            while ! [ -f '{{ $dataDir }}/server/node-token' ]; then
-              echo 'Waiting for node-token to exist'
-              sleep 10;
-            done
-            kill -s INT "${RKE_PID}"
-            k3s kubectl create secret generic '{{ include "kink.fullname" . }}-node-token' --from-file '{{ $tokenVar }}={{ $dataDir }}/server/node-token'
-          command: [ '{{ $k8sBin }}' ]
-          args:
-
+          - |-
+              if [ -f "${ETCD_CONFIG_FILE}" ]; then
+                echo 'Etcd config file present, attempting to update own member IP'
+                export ETCDCTL_CACERT=$(yq '.["client-transport-security"].["trusted-ca-file"]' "${ETCD_CONFIG_FILE}")
+                export ETCDCTL_CERT=$(yq '.["client-transport-security"].["cert-file"]' "${ETCD_CONFIG_FILE}")
+                export ETCDCTL_KEY=$(yq '.["client-transport-security"].["key-file"]' "${ETCD_CONFIG_FILE}")
+                export ETCDCTL_ENDPOINTS='https://{{ include "kink.controlplane.fullname" . }}:2379'
+                ETCD_NAME=$(cat "${ETCD_NAME_FILE}")
+                ETCD_ID=$(etcdctl member list --write-out=json | yq '.members[] | select(.name|test("'"${POD_NAME}"'")).ID')
+                ETCD_ID=$(printf '%x' "${ETCD_ID}")
+                etcdctl member update "${ETCD_ID}" --peer-urls="https://${POD_IP}:2380"
+              else
+                echo "No etcd config file present, assuming this node isn't initialized"
+              fi
+              echo 'Copying extra manifests'
+              mkdir -p '{{ $dataDir }}/server/manifests/'
+              # TODO: This will always succeed, even if a copy fails, fix this
+              find /etc/kink/extra-manifests/ -name '*.yaml' -exec cp {} '{{ $dataDir }}/server/manifests/' \;
+          resources:
+            {{- toYaml .Values.controlplane.resources | nindent 12 }}
+          volumeMounts:
+          - name: data
+            mountPath: '{{ $dataDir }}'
+            subPath: '{{ $dataDir | trimPrefix "/" }}'
+          - name: data
+            mountPath: /etc/rancher
+            subPath: etc/rancher
+          - name: kubelet
+            mountPath: /var/lib/kubelet
+            subPath: var/lib/rancher
+          {{- range .Values.controlplane.persistence.extraMounts }}
+          - name: data
+            mountPath: /{{ . }}
+            subPath: {{ . | trimPrefix "/" }}
+          {{- end }}
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}
@@ -118,17 +119,52 @@ spec:
           - |
             if [ "${POD_NAME}" = '{{ include "kink.controlplane.fullname" . }}-0' ]; then
               exec '{{ $k8sBin }}' server \
+                {{- if .Values.controlplane.defaultTaint }}
+                --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule \
+                {{- end }}
+                {{- range $taint := .Values.controlplane.extraTaints }}
+                --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}' \
+                {{- end }}
                 '--data-dir={{ $dataDir }}' \
-                --cluster-init
+                {{- if not .Values.rke2.enabled }}
+                --cluster-init \
+                {{- end }}
+                '--data-dir={{ $dataDir }}' \
+                '--tls-san={{ .Release.Name }}' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}' \
+                '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
+
             else 
               exec '{{ $k8sBin }}' server \
+                {{- if .Values.controlplane.defaultTaint }}
+                --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule \
+                {{- end }}
+                {{- range $taint := .Values.controlplane.extraTaints }}
+                --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}' \
+                {{- end }}
                 '--data-dir={{ $dataDir }}' \
-                --server={{ include "kink.controlplane.url" . }}
-           fi
+                '--server={{ include "kink.controlplane.url" . }}' \
+                '--tls-san={{ .Release.Name }}' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc' \
+                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}' \
+                '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
+
+            fi
           {{- else }}
           command: [ '{{ $k8sBin }}' ]
           args:
           - server
+          {{- if .Values.controlplane.defaultTaint }}
+          - --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule \
+          {{- end }}
+          {{- range $taint := .Values.controlplane.extraTaints }}
+          - --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}' \
+          {{- end }}
           - '--data-dir={{ $dataDir }}'
           - '--tls-san={{ .Release.Name }}'
           - '--tls-san={{ include "kink.controlplane.fullname" . }}'

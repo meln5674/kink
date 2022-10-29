@@ -9,9 +9,7 @@ release:
     image.pullPolicy: Never
     controlplane.securityContext.privileged: "true"
     worker.securityContext.privileged: "true"
-    controlplane.replicaCount: "3"
+    controlplane.replicaCount: "1"
     worker.replicaCount: "1"
     controlplane.persistence.enabled: "true"
-    worker.persistence.enabled: "true" 
-    rke2.enabled: "true"
-
+    worker.persistence.enabled: "true"

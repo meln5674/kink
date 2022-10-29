@@ -11,11 +11,24 @@ import (
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/meln5674/kink/pkg/containerd"
 	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 var (
-	parallelLoads int
+	parallelLoads     int
+	onlyLoadToWorkers bool
+	importImageFlags  containerd.CtrFlags
+
+	k3sDefaultImportImageFlags = containerd.CtrFlags{
+		Command: []string{"k3s", "ctr"},
+	}
+
+	rke2DefaultImportImageFlags = containerd.CtrFlags{
+		Command:   []string{"/var/lib/rancher/rke2/bin/ctr"},
+		Namespace: "k8s.io",
+		Address:   "/run/k3s/containerd/containerd.sock",
+	}
 )
 
 // loadCmd represents the load command
@@ -33,15 +46,33 @@ func init() {
 	// and all subcommands, e.g.:
 	// loadCmd.PersistentFlags().String("foo", "", "A help for foo")
 	loadCmd.PersistentFlags().IntVar(&parallelLoads, "parallel-loads", 1, "How many image/artifact loads to run in parallel")
+	loadCmd.PersistentFlags().BoolVar(&onlyLoadToWorkers, "only-load-workers", true, "If true, only load images to worker nodes, if false, also load to controlplane nodes")
+	loadCmd.PersistentFlags().StringArrayVar(&importImageFlags.Command, "ctr-command", []string{}, "Command to run within node pods to load images. Default is based on which distribution is used")
+	loadCmd.PersistentFlags().StringVar(&importImageFlags.Namespace, "ctr-namespace", "", "Contaiinerd namespace to to load images to. Default is based on which distribution is used")
+	loadCmd.PersistentFlags().StringVar(&importImageFlags.Address, "ctr-address", "", "Containerd socket address to to load images to. Default is based on which distribution is used")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// loadCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
+func parseImportImageFlags() {
+	var defaults *containerd.CtrFlags
+	if rke2Enabled() {
+		defaults = &rke2DefaultImportImageFlags
+	} else {
+		defaults = &k3sDefaultImportImageFlags
+	}
+	importImageFlags.Override(defaults)
+}
+
 func getPods(ctx context.Context) (*corev1.PodList, error) {
 	var pods corev1.PodList
-	getPods := kubectl.GetPods(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, config.Release.ExtraLabels())
+	labels := config.Release.ExtraLabels()
+	if onlyLoadToWorkers {
+		labels["app.kubernetes.io/component"] = "worker"
+	}
+	getPods := kubectl.GetPods(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, labels)
 	err := gosh.
 		Command(getPods...).
 		WithContext(ctx).

@@ -6,8 +6,8 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/pkg/errors"
 	"os"
 	"os/exec"
 	"time"
@@ -26,6 +26,10 @@ var (
 const (
 	k3sKubeconfigPath  = "/etc/rancher/k3s/k3s.yaml"
 	rke2KubeconfigPath = "/etc/rancher/rke2/rke2.yaml"
+)
+
+var (
+	exportedKubeconfigPath string
 )
 
 // execCmd represents the exec command
@@ -63,6 +67,7 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// execCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	execCmd.Flags().StringVar(&exportedKubeconfigPath, "exported-kubeconfig", "", "Path to kubeconfig exported during `create cluster` or `export kubeconfig` instead of copying it again")
 }
 
 func execWithGateway(toExec *gosh.Cmd) {
@@ -85,20 +90,24 @@ func execWithGateway(toExec *gosh.Cmd) {
 			kubeconfigPath = rke2KubeconfigPath
 		}
 
-		kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
-		defer kubeconfig.Close()
-		defer os.Remove(kubeconfig.Name())
-		if err != nil {
-			return nil, err
-		}
-		kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), kubeconfigPath, kubeconfig.Name())
-		err = gosh.
-			Command(kubectlCp...).
-			WithContext(ctx).
-			WithStreams(gosh.ForwardOutErr).
-			Run()
-		if err != nil {
-			return nil, err
+		if exportedKubeconfigPath == "" {
+			kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
+			defer kubeconfig.Close()
+			defer os.Remove(kubeconfig.Name())
+			if err != nil {
+				return nil, err
+			}
+			// TODO: Find a live pod first
+			kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), kubeconfigPath, kubeconfig.Name())
+			err = gosh.
+				Command(kubectlCp...).
+				WithContext(ctx).
+				WithStreams(gosh.ForwardOutErr).
+				Run()
+			if err != nil {
+				return nil, errors.Wrap(err, "Could not extract kubeconfig from controlplane pod, make sure controlplane is healthy")
+			}
+			exportedKubeconfigPath = kubeconfig.Name()
 		}
 
 		// TODO: Get service name/remote port from chart (helm get manifest)
@@ -112,7 +121,7 @@ func execWithGateway(toExec *gosh.Cmd) {
 		err = kubectlPortForwardCmd.Start()
 
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "Failed to start port-forwarding to controlplane")
 		}
 		defer func() {
 			// Deliberately ignoing the errors here
@@ -133,7 +142,7 @@ func execWithGateway(toExec *gosh.Cmd) {
 		err = toExec.
 			WithContext(ctx).
 			WithParentEnvAnd(map[string]string{
-				"KUBECONFIG": kubeconfig.Name(),
+				"KUBECONFIG": exportedKubeconfigPath,
 			}).
 			WithStreams(gosh.ForwardAll).
 			Run()

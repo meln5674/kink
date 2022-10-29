@@ -32,11 +32,11 @@ If no arguments are provided, this instead runs an interactive shell, allowing y
 interactively use tools like kubectl and helm to interact with your isolated cluster.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var sh *gosh.Cmd
-		if len(args) != 0 {
-			sh = gosh.Shell(strings.Join(args, " "))
-		} else {
-			sh = gosh.Command("")
+		if len(args) == 0 {
+			sh = gosh.Shell("")
 			sh = gosh.Command(sh.Cmd.Args[0])
+		} else {
+			sh = gosh.Shell(strings.Join(args, " "))
 		}
 		execWithGateway(sh)
 	},
@@ -54,4 +54,5 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// shCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	shCmd.Flags().StringVar(&exportedKubeconfigPath, "exported-kubeconfig", "", "Path to kubeconfig exported during `create cluster` or `export kubeconfig` instead of copying it again")
 }

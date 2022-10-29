@@ -112,6 +112,9 @@ controlplane:
     # Uses the same directory for both mountPath and subPath
     extraMounts: []
 
+  # If true, will taint controlplane nodes with node-role.kubernetes.io/control-plane=true:NoSchedule
+  defaultTaint: true
+  extraTaints: [] # { key: "", value: "", effect: "" }
 
 worker:
   serviceAccount:
@@ -195,4 +198,4 @@ token:
 clusterDomain: cluster.local
 
 rke2:
-  enabled: true
+  enabled: false

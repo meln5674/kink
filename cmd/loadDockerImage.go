@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
 
+	"github.com/meln5674/kink/pkg/containerd"
 	"github.com/meln5674/kink/pkg/docker"
 	"github.com/meln5674/kink/pkg/kubectl"
 )
@@ -33,6 +34,11 @@ var dockerImageCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			err = getReleaseValues(ctx)
+			if err != nil {
+				return err
+			}
+			parseImportImageFlags()
 			pods, err := getPods(ctx)
 			if err != nil {
 				return err
@@ -43,7 +49,7 @@ var dockerImageCmd = &cobra.Command{
 					&config.Kubectl, &config.Kubernetes,
 					config.Release.Namespace, pod.Name,
 					true, false,
-					"k3s", "ctr", "image", "import", "-",
+					containerd.ImportImage(&importImageFlags, "-")...,
 				)
 				dockerSave := docker.Save(&config.Docker, dockerImagesToLoad...)
 				pipeline := gosh.Pipeline(
