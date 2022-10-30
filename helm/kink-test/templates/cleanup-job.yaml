@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kink-test.fullname" . }}-cleanup
+  labels:
+    {{- include "kink-test.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-delete
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kink-test.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          workingDir: {{ .Values.sourceMount.path }}
+          command: [bash, -xecu]
+          args:
+          - |-
+            export SHELL
+            {{- if contains "rke2" .Values.testCase }}
+            ln -s '/var/lib/rancher/rke2/server/bin/kubectl' /usr/local/bin/kubectl
+            {{- else }}
+            cat > /usr/local/bin/kubectl <<'EOF'
+            #!/bin/bash -e
+            exec k3s kubectl "$@"
+            EOF
+            chmod +x /usr/local/bin/kubectl
+            {{- end }}
+            TEST_CASE='{{ .Values.testCase }}' \
+            IMAGE_REPO='{{ .Values.image.repository }}' \
+            IMAGE_TAG='{{ .Values.image.tag }}' \
+            KINK_IT_NO_KINK_CREATE="1" \
+            KINK_IT_NO_LOAD="1" \
+            KINK_IT_NO_CLEANUP="" \
+            KINK_IT_CLEANUP=1 \
+            integration-test/run-in-cluster-case.sh
+          
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+          - name: src
+            mountPath: {{ .Values.sourceMount.path }}
+          - name: docker
+            mountPath: /var/run/docker.sock
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: src
+        hostPath:
+          path: {{ .Values.sourceMount.path }}
+      - name: docker
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket

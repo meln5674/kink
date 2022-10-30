@@ -3,7 +3,7 @@ module github.com/meln5674/kink
 go 1.18
 
 require (
-	github.com/meln5674/gosh v0.0.0-20221024022746-c916cd07d7ed
+	github.com/meln5674/gosh v0.0.0-20221030200714-a122b7bfdcb5
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.5.0
 	k8s.io/api v0.25.3

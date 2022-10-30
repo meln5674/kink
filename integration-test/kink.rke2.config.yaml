@@ -1,7 +1,5 @@
 apiVersion: kink.meln5674.github.com/v0
 Kind: Config
-kubernetes:
-  kubeconfig: integration-test/kind.kubeconfig
 chart:
     chart: ./helm/kink
 release:

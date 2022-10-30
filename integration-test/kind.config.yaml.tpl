@@ -7,6 +7,10 @@ nodes:
     containerPath: /var/shared-local-path-provisioner
   - hostPath: ${PWD}/integration-test/local-path-provisioner
     containerPath: /var/local-path-provisioner
+  - hostPath: ${PWD}
+    containerPath: /src/kink
+  - hostPath: /var/run/docker.sock
+    containerPath: /var/run/docker.sock
   extraPortMappings:
   - containerPort: 80
     hostPort: 80

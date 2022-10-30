@@ -76,6 +76,5 @@ func init() {
 	// is called directly, e.g.:
 	// createClusterCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	createClusterCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
-	createClusterCmd.Flags().BoolVar(&exportedKubeconfigInCluster, "conrolplane-in-cluster", false, "Replace the api server address with the address to use if in the same cluster")
-	createClusterCmd.Flags().StringVar(&exportedKubeconfigHostOverride, "controlplane-server", "", "Override server name for kubeconfig")
+	createClusterCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL")
 }

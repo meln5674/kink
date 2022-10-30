@@ -47,7 +47,7 @@ if [ -z "${CLUSTER_EXISTS}" ] || ([ -n "${CLUSTER_EXISTS}" ] && [ -z "${KINK_IT_
         --config="${KIND_CONFIG_FILE}"
 fi
 
-if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
+if [ -z "${KINK_IT_CLEANUP}" ]; then
     hack/add-kind-shared-storage.sh \
         "${KIND_CLUSTER_NAME}" \
         /var/shared-local-path-provisioner \
@@ -70,11 +70,20 @@ if [ -z "${KINK_IT_CLEANUP}" ] ; then
 fi
 
 if [ -n "${KINK_IT_CLEANUP}" ]; then
-
+    export KUBECONFIG="${KIND_KUBECONFIG}"
     for test_case in k3s k3s-ha rke2; do
         KINK_CLUSTER_NAME=it-${test_case}
         KINK_COMMAND=( bin/kink.cover --config "${KINK_CONFIG_FILE}" --name "${KINK_CLUSTER_NAME}" -v11 )
         "${KINK_COMMAND[@]}" delete cluster --name="${KINK_CLUSTER_NAME}" || true
+    done
+    for test_case in k3s k3s-ha rke2; do
+        helm delete "kink-test-${test_case}" --wait &
+        DELETE_PID=$!
+
+        kubectl logs -f "job/kink-test-${test_case}-cleanup" || true
+
+        wait "${DELETE_PID}" || true
+
     done
     kind delete cluster --name="${KIND_CLUSTER_NAME}"
     exit 0
@@ -100,4 +109,14 @@ for test_case in ${TEST_CASES:-k3s k3s-ha rke2}; do
     KINK_IT_NO_LOAD="${KINK_IT_NO_LOAD}" \
     KINK_IT_NO_CLEANUP="${KINK_IT_NO_CLEANUP}" \
     integration-test/run-case.sh 
+done
+
+for test_case in ${IN_CLUSTER_TEST_CASES:-k3s k3s-ha rke2}; do
+    TEST_CASE="${test_case}" \
+    IMAGE_REPO="${IMAGE_REPO}" \
+    IMAGE_TAG="${IMAGE_TAG}" \
+    KINK_IT_NO_KINK_CREATE="${KINK_IT_NO_KINK_CREATE}" \
+    KINK_IT_NO_LOAD="${KINK_IT_NO_LOAD}" \
+    KINK_IT_NO_CLEANUP="${KINK_IT_NO_CLEANUP}" \
+    integration-test/run-case-in-cluster.sh 
 done

@@ -1,0 +1,39 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kink-test.fullname" . }}
+rules:
+- apiGroups: ['']
+  resources: [services,persistentvolumeclaims,serviceaccounts,secrets,configmaps]
+  verbs: ['*']
+- apiGroups: [apps]
+  resources: [statefulsets]
+  verbs: ['*']
+- apiGroups: [networking.k8s.io]
+  resources: [ingresses]
+  verbs: ['*']
+- apiGroups: ['']
+  resources: [pods]
+  verbs: [get,list,watch]
+- apiGroups: ['']
+  resources: [pods/exec]
+  verbs: [create]
+- apiGroups: ['']
+  resources: [pods/logs]
+  verbs: [get]
+- apiGroups: ['']
+  resources: [pods/portforward]
+  verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kink-test.fullname" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  name: {{ include "kink-test.fullname" . }}
+  kind: Role
+subjects:
+- name: {{ include "kink-test.serviceAccountName" . }}
+  kind: ServiceAccount
+  namespace: '{{ .Release.Namespace }}'

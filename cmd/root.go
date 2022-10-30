@@ -116,7 +116,7 @@ func loadConfig() error {
 
 func getReleaseValues(ctx context.Context) error {
 	return gosh.
-		Command(helm.GetValues(&config.Helm, &config.Release, &config.Kubernetes)...).
+		Command(helm.GetValues(&config.Helm, &config.Release, &config.Kubernetes, true)...).
 		WithContext(ctx).
 		WithStreams(gosh.FuncOut(gosh.SaveJSON(&releaseValues))).
 		Run()

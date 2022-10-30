@@ -2,6 +2,10 @@ ARG BASE_IMAGE=docker.io/library/debian:bullseye-slim
 
 ARG GO_IMAGE=docker.io/library/golang:1.18
 
+ARG DOCKER_IMAGE=docker.io/library/docker:20
+
+FROM ${DOCKER_IMAGE} AS docker
+
 FROM ${GO_IMAGE} AS go
 
 WORKDIR /src/kink/
@@ -14,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w -
 
 FROM ${BASE_IMAGE}
 
-RUN apt-get update && apt-get install -y curl iptables
+RUN apt-get update && apt-get install -y curl iptables buildah
 
 ARG K3S_VERSION=v1.25.2+k3s1
 ARG ARCH= #amd64 # amd64 is the default, not needed
@@ -49,6 +53,14 @@ COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/k3s/sys
 RUN mkdir -p /etc/kink/extra-manifests/k3s/user /etc/kink/extra-manifests/rke2/user
 
 COPY --from=go /src/kink/bin/kink /usr/local/bin/kink
+
+COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
+
+ARG HELM_VERSION=v3.10.1
+
+RUN curl -fvL https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz \
+  | tar xz -C /usr/local/bin/ --strip-components=1 linux-amd64/helm
+
 
 VOLUME /var/lib/rancher/
 VOLUME /var/lib/kubelet
