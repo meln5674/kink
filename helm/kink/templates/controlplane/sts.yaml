@@ -113,58 +113,26 @@ spec:
                 name: {{ include "kink.fullname" . }}
                 key: token
                 {{- end }}
-          {{- if gt (int .Values.controlplane.replicaCount) 1 }}
-          command: [sh,-ce]
-          args:
+          command:
+          - sh
+          - -ce
           - |
+            {{- if gt (int .Values.controlplane.replicaCount) 1 }}
             if [ "${POD_NAME}" = '{{ include "kink.controlplane.fullname" . }}-0' ]; then
               exec '{{ $k8sBin }}' server \
-                {{- if .Values.controlplane.defaultTaint }}
-                --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule \
-                {{- end }}
-                {{- range $taint := .Values.controlplane.extraTaints }}
-                --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}' \
-                {{- end }}
-                '--data-dir={{ $dataDir }}' \
                 {{- if not .Values.rke2.enabled }}
                 --cluster-init \
                 {{- end }}
-                '--data-dir={{ $dataDir }}' \
-                '--tls-san={{ .Release.Name }}' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}' \
-                '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
-
-            else 
+                "$@"
+            else
               exec '{{ $k8sBin }}' server \
-                {{- if .Values.controlplane.defaultTaint }}
-                --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule \
-                {{- end }}
-                {{- range $taint := .Values.controlplane.extraTaints }}
-                --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}' \
-                {{- end }}
-                '--data-dir={{ $dataDir }}' \
-                '--server={{ include "kink.controlplane.url" . }}' \
-                '--tls-san={{ .Release.Name }}' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc' \
-                '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}' \
-                '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
-
+                --server='{{ include "kink.controlplane.url" . }}' \
+                "$@"
             fi
-          {{- else }}
-          command: [ '{{ $k8sBin }}' ]
+            {{- else }}
+            exec '{{ $k8sBin }}' server "$@"
+            {{- end }}
           args:
-          - server
-          {{- if .Values.controlplane.defaultTaint }}
-          - --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule \
-          {{- end }}
-          {{- range $taint := .Values.controlplane.extraTaints }}
-          - --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}' \
-          {{- end }}
           - '--data-dir={{ $dataDir }}'
           - '--tls-san={{ .Release.Name }}'
           - '--tls-san={{ include "kink.controlplane.fullname" . }}'
@@ -172,6 +140,11 @@ spec:
           - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc'
           - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
           - '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
+          {{- if .Values.controlplane.defaultTaint }}
+          - --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule
+          {{- end }}
+          {{- range $taint := .Values.controlplane.extraTaints }}
+          - --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}'
           {{- end }}
           ports:
             - name: api
