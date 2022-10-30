@@ -78,11 +78,7 @@ If you don't have a cluster to test with, you can use [KinD](https://github.com/
 ```bash
 kind create cluster --kubeconfig=./kind.kubeconfig
 kind load docker-image <image registry>/<image name>:<image tag>
-helm --kubeconfig=./kind.kubeconfig ...
-# ...
-kubectl --kubeconfig=./kind.kubeconfig ...
-# ...
-kubectl --kubeconfig=./kink.kubeconfig ...
+kink --kubeconfig=./kind.kubeconfig ...
 ```
 
 ## Other Configurations
@@ -94,3 +90,7 @@ RKE2 is derrived from k3s, and is similar enough that you can switch to using it
 ### Single-node
 
 If having two nodes is still two heavyweight, you can use a single-node setup by adding `--set worker.replicaCount=0,controlplane.defaultTaint=false`. For obvious reasons, this will not work with RKE2.
+
+### ReadWriteMany Storage
+
+If your parent cluster supports ReadWriteMany storage, you can leverage this in your KinK cluster as well by adding `--set sharedPersistence.enabled=true`. By default, KinD does not support this. You can use `hack/add-kind-shared-storage.sh` to add this support. If your KinD cluster has multiple nodes, you wil need an idential host mount on all KinD nodes.
