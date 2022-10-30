@@ -12,6 +12,9 @@
 * PodDisruptionPolicy for HA controlplane
 * PodDisruptionPolicy for workers for, e.g. maintaining availability for apps
 * Make an operator that lets you request a cluster via a CRD
+    * Would create a cluster named as the UID of the cluster CR using in-cluster permissions
+    * Would helm upgrade into its own namespace, and add kubeconfig to cluster CR status
+        * This seems insecure, but is in fact the most secure option, as it means that requesting a cluster requires /only/ access to the cluster CR within a given namespace, and not even access to secrets. Not deploying to the same namespace as the CR means that tenants cannot exec into the priviledged containers, and can only access over the k8s API. This allows for providing permissions to request a cluster as part of a single-namespace pipeline (e.g. Jenkins) without the risk of accessing secrets in the same namespace.
 * Make a version that uses kindest/node? - Probably not
 * Add an optional post-hook job which pulls the kubeconfig into a secret via kubectl exec and kubectl create secret
 * Language bindings for in-language tests?
@@ -23,3 +26,4 @@
 * Set up actions to publish exe's, chart, and image
     * Run integration tests in actions and see how long until I get rate limited
 * Re-write integration tests in Go using Ginkgo
+* Create secret w/ kubeconfig on cluster creation. Add separate clusters/contexts for localhost, in-cluster, and via external access via url provided by flag

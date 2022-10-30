@@ -6,4 +6,7 @@ bin/
 *.tar
 integration-test/last-image
 integration-test/log
+integration-test/kind.config.yaml
+integration-test/local-path-provisioner
+integration-test/shared-local-path-provisioner
 charts/local-path-provisioner

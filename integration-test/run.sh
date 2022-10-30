@@ -1,5 +1,7 @@
 #!/bin/bash -xe
 
+set -o pipefail
+
 which curl || (echo "curl not on PATH" ; exit 1)
 which go || (echo "go not on PATH" ; exit 1)
 which helm || (echo "helm not on PATH" ; exit 1)
@@ -28,7 +30,7 @@ else
     IMAGE_TAG=$(awk -F ':' '{ print $2 }' <<< "${BUILT_IMAGE}")
 fi
 
-KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME=kink}
+KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME=kink-it}
 CLUSTER_EXISTS="$(
     if kind get clusters | grep -qw "${KIND_CLUSTER_NAME}" ; then
         echo 1
@@ -37,16 +39,30 @@ CLUSTER_EXISTS="$(
 
 KIND_KUBECONFIG=./integration-test/kind.kubeconfig
 if [ -z "${CLUSTER_EXISTS}" ] || ([ -n "${CLUSTER_EXISTS}" ] && [ -z "${KINK_IT_NO_CLEANUP}" ] && [ -z "${KINK_IT_CLEANUP}" ]); then
+    KIND_CONFIG_FILE=integration-test/kind.config.yaml
+    cat "${KIND_CONFIG_FILE}.tpl" | sed 's|\${PWD}|'"${PWD}"'|g' | tee "${KIND_CONFIG_FILE}"
     kind create cluster \
         --name="${KIND_CLUSTER_NAME}" \
-        --kubeconfig="${KIND_KUBECONFIG}"
+        --kubeconfig="${KIND_KUBECONFIG}" \
+        --config="${KIND_CONFIG_FILE}"
+fi
+
+if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
+    hack/add-kind-shared-storage.sh \
+        "${KIND_CLUSTER_NAME}" \
+        /var/shared-local-path-provisioner \
+        shared-local-path-provisioner \
+        charts/local-path-provisioner-0.0.24-dev.tgz \
+        kube-system \
+        shared-local-path
 fi
 
 export KUBECONFIG="${KIND_KUBECONFIG}"
 
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
-    TRAP_CMD="kind delete cluster --name='${KIND_CLUSTER_NAME}'"
-    trap "${TRAP_CMD}" EXIT
+    # TODO: Use a temporary root container instead of sudo here
+    TRAP_CMD="kind delete cluster --name='${KIND_CLUSTER_NAME}' ; sudo rm -rf integration-test/local-path-provisioner/* ; sudo rm -rf integration-test/shared-local-path-provisionder/* ; ${TRAP_CMD}"
+    trap "set +e; ${TRAP_CMD}" EXIT
 fi
 
 if [ -z "${KINK_IT_CLEANUP}" ] ; then
@@ -66,17 +82,20 @@ fi
 
 
 
-kubectl get pods -w &
+kubectl get pods -o wide -w &
 GET_PODS_PID=$!
 TRAP_CMD="kill ${GET_PODS_PID} ; ${TRAP_CMD}"
-trap "${TRAP_CMD}" EXIT
+trap "set +e; ${TRAP_CMD}" EXIT
+
+export KUBECONFIG="${KIND_KUBECONFIG}"
+
+# helm upgrade --install -n 
 
 
 for test_case in ${TEST_CASES:-k3s k3s-ha rke2}; do
     TEST_CASE="${test_case}" \
     IMAGE_REPO="${IMAGE_REPO}" \
     IMAGE_TAG="${IMAGE_TAG}" \
-    KUBECONFIG="${KIND_KUBECONFIG}" \
     KINK_IT_NO_KINK_CREATE="${KINK_IT_NO_KINK_CREATE}" \
     KINK_IT_NO_LOAD="${KINK_IT_NO_LOAD}" \
     KINK_IT_NO_CLEANUP="${KINK_IT_NO_CLEANUP}" \

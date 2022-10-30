@@ -1,0 +1,17 @@
+{{- if .Values.sharedPersistence.enabled  }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "kink.fullname" . }}-shared
+  labels:
+    {{- include "kink.labels" . | nindent 4 }}
+spec:
+  accessModes:
+  {{- .Values.sharedPersistence.accessModes | toYaml | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.sharedPersistence.size }}
+  {{- with .Values.sharedPersistence.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}

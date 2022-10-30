@@ -11,8 +11,9 @@ spec:
   bootstrap: true
   set:
     storageClass.name: "shared-local-path"
-    nodePathMap: "[]"
+    nodePathMap: "null"
     sharedFileSystemPath: "/opt/shared-local-path-provisioner"
+    configmap.name: 'kink-shared-local-path-provisioner'
   chartContent: |
 $(cat "${CHART_PATH}" | base64 | sed -E 's/^/    /g')
 EOF

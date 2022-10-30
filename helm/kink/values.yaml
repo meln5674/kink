@@ -188,6 +188,14 @@ worker:
     extraMounts:
     - /opt/local-path-provisioner
 
+sharedPersistence:
+  enabled: false
+  size: 8Gi
+  accessModes:
+  - ReadWriteOnce
+  storageClassName:
+  mounts:
+  - /opt/shared-local-path-provisioner
 
 token:
   value: my-secret-token

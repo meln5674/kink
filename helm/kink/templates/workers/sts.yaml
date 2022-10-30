@@ -95,6 +95,14 @@ spec:
             mountPath: /{{ . }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
+          {{- if .Values.sharedPersistence.enabled }}
+          {{- range .Values.sharedPersistence.mounts }}
+          - name: shared-data
+            mountPath: /{{ . }}
+            subPath: {{ . | trimPrefix "/" }}
+          {{- end }}
+          {{- end }}
+
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -115,6 +123,11 @@ spec:
       {{- if not .Values.worker.persistence.enabled }}
       - name: data
         emptyDir: {}
+      {{- end }}
+      {{- if .Values.sharedPersistence.enabled }}
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: {{ include "kink.fullname" . }}-shared
       {{- end }}
   volumeClaimTemplates:
   {{- if .Values.worker.persistence.enabled }}

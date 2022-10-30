@@ -43,7 +43,10 @@ ARG YQ_VERSION=v4.28.2
 RUN curl -fvL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" > /usr/local/bin/yq \
  && chmod +x /usr/local/bin/yq
 
-COPY charts/local-path-provisioner.yaml /etc/kink/extra-manifests/kink-local-path-provisioner.yaml
+COPY charts/local-path-provisioner.yaml /etc/kink/extra-manifests/rke2/system/kink-local-path-provisioner.yaml
+COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/rke2/system/kink-shared-local-path-provisioner.yaml
+COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/k3s/system/kink-shared-local-path-provisioner.yaml
+RUN mkdir -p /etc/kink/extra-manifests/k3s/user /etc/kink/extra-manifests/rke2/user
 
 COPY --from=go /src/kink/bin/kink /usr/local/bin/kink
 

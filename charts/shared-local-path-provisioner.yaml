@@ -4,12 +4,15 @@ metadata:
   annotations:
     helm.cattle.io/chart-url: https://raw.githubusercontent.com/meln5674/kink/0dd4ec8fc9dde4142676c05e697e6adccf289964/charts/local-path-provisioner-0.0.24-dev.tgz
   creationTimestamp: null
-  name: kink-local-path-provisioner
+  name: kink-shared-local-path-provisioner
   namespace: kube-system
 spec:
   bootstrap: true
   set:
-    storageClass.defaultClass: "true"
+    storageClass.name: "shared-local-path"
+    nodePathMap: "null"
+    sharedFileSystemPath: "/opt/shared-local-path-provisioner"
+    configmap.name: 'kink-shared-local-path-provisioner'
   chartContent: |
     H4sIFAAAAAAA/ykAK2FIUjBjSE02THk5NWIzVjBkUzVpWlM5Nk9WVjZNV2xqYW5keVRRbz1IZWxt
     AOw9f3PbNrL9m59iT85d45xFSY4dd9SXm3Hj9M7vJY7Hdtu58WUiiFxJqEmCBUA7auz77G/wgyRI
