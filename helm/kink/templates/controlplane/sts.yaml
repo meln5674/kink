@@ -138,14 +138,16 @@ spec:
                 {{- if not .Values.rke2.enabled }}
                 --cluster-init \
                 {{- end }}
+                "$0" \
                 "$@"
             else
               exec '{{ $k8sBin }}' server \
                 --server='{{ include "kink.controlplane.url" . }}' \
+                "$0" \
                 "$@"
             fi
             {{- else }}
-            exec '{{ $k8sBin }}' server "$@"
+            exec '{{ $k8sBin }}' server "$0" "$@"
             {{- end }}
           args:
           - '--data-dir={{ $dataDir }}'
