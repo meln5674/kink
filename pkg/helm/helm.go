@@ -37,7 +37,7 @@ func (c *ChartFlags) Override(c2 *ChartFlags) {
 }
 
 func (c *ChartFlags) IsLocalChart() bool {
-	return strings.HasPrefix(c.ChartName, "./")
+	return strings.HasPrefix(c.ChartName, "./") || strings.HasPrefix(c.ChartName, "/")
 }
 
 func (c *ChartFlags) RepoName() string {
