@@ -52,7 +52,15 @@ spec:
                 name: {{ include "kink.fullname" . }}
                 key: token
                 {{- end }}
-          command: [ '{{ $k8sBin }}' ]
+          command:
+          - sh
+          - -cxe
+          - |-
+            {{- if .Values.iptables.useLegacy }}
+            update-alternatives --set iptables /usr/sbin/iptables-legacy
+            update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+            {{- end }}
+            exec '{{ $k8sBin }}' "$0" "$@"
           args:
           - agent
           - '--server={{ include "kink.controlplane.url" . }}'

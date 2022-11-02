@@ -207,3 +207,6 @@ clusterDomain: cluster.local
 
 rke2:
   enabled: false
+
+iptables:
+  useLegacy: false

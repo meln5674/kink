@@ -132,6 +132,10 @@ spec:
           - sh
           - -ce
           - |
+            {{- if .Values.iptables.useLegacy }}
+            update-alternatives --set iptables /usr/sbin/iptables-legacy
+            update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
+            {{- end }}
             {{- if gt (int .Values.controlplane.replicaCount) 1 }}
             if [ "${POD_NAME}" = '{{ include "kink.controlplane.fullname" . }}-0' ]; then
               exec '{{ $k8sBin }}' server \
