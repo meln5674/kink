@@ -111,3 +111,5 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 "${KINK_COMMAND[@]}" export kubeconfig --out-kubeconfig="${KINK_KUBECONFIG}"
 
 cat "${KINK_KUBECONFIG}"
+
+echo "${TEST_CASE}" Passed!

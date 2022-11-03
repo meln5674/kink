@@ -35,6 +35,69 @@ spec:
       serviceAccountName: {{ include "kink.worker.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.worker.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: init
+          securityContext:
+            {{- toYaml .Values.worker.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: '{{ $tokenVar }}'
+            valueFrom:
+              secretKeyRef:
+                {{- if .Values.token.existingSecret.name }}
+                name: {{ .Values.token.existingSecret.name }}
+                key:  {{ .Values.token.existingSecret.key }}
+                {{- else }}
+                name: {{ include "kink.fullname" . }}
+                key: token
+                {{- end }}
+          {{- with .Values.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          command:
+          - sh
+          - -cxe
+          args:
+          - |-
+            # Without this, recreating a worker pod results in an invalid kubelet cert,
+            # which breaks things like kubectl logs
+            rm -f '{{ $dataDir }}/agent/kubelet-serving'.{crt,key}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+          - name: data
+            mountPath: '{{ $dataDir }}'
+            subPath: '{{ $dataDir | trimPrefix "/" }}'
+          - name: data
+            mountPath: /etc/rancher
+            subPath: etc/rancher
+          - name: kubelet
+            mountPath: /var/lib/kubelet
+            subPath: var/lib/kubelet
+          {{- range .Values.worker.persistence.extraMounts }}
+          - name: data
+            mountPath: /{{ . }}
+            subPath: {{ . | trimPrefix "/" }}
+          {{- end }}
+          {{- if .Values.sharedPersistence.enabled }}
+          {{- range .Values.sharedPersistence.mounts }}
+          - name: shared-data
+            mountPath: /{{ . }}
+            subPath: {{ . | trimPrefix "/" }}
+          {{- end }}
+          {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+
+
       containers:
         - name: {{ .Chart.Name }}
           securityContext:

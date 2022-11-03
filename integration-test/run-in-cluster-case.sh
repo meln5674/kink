@@ -98,6 +98,9 @@ fi
 
 "${INNER_KUBECTL[@]}" get all -A
 "${INNER_KUBECTL[@]}" port-forward svc/wordpress 8080:80 &
+
+"${INNER_KUBECTL[@]}" logs deploy/wordpress
+
 PORT_FORWARD_PID=$!
 TRAP_CMD="kill ${PORT_FORWARD_PID} ; ${TRAP_CMD}"
 trap "set +e; ${TRAP_CMD}" EXIT
