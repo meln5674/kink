@@ -122,10 +122,10 @@ spec:
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
           {{- end }}
-          {{- with .Values.extraVolumesMounts }}
+          {{- with .Values.extraVolumeMounts }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
-          {{- with .Values.controlplane.extraVolumesMounts }}
+          {{- with .Values.controlplane.extraVolumeMounts }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
 

@@ -113,10 +113,10 @@ spec:
             mountPath: /{{ . }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
-          {{- with .Values.extraVolumesMounts }}
+          {{- with .Values.extraVolumeMounts }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
-          {{- with .Values.controlplane.extraVolumesMounts }}
+          {{- with .Values.controlplane.extraVolumeMounts }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
       containers:
