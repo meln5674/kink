@@ -94,3 +94,7 @@ If having two nodes is still two heavyweight, you can use a single-node setup by
 ### ReadWriteMany Storage
 
 If your parent cluster supports ReadWriteMany storage, you can leverage this in your KinK cluster as well by adding `--set sharedPersistence.enabled=true`. By default, KinD does not support this. You can use `hack/add-kind-shared-storage.sh` to add this support. If your KinD cluster has multiple nodes, you wil need an idential host mount on all KinD nodes.
+
+### Legacy IPTables
+
+If your kernel does not support nftables, then you will see errors such as `Couldn't load match `comment':No such file or directory`, and your cluster will fail to start. You can set `iptables.useLegacy` to resolve this.
