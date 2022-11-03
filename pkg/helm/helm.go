@@ -9,11 +9,20 @@ import (
 )
 
 const (
-	ClusterLabel = "kind.meln5674.github.com/cluster"
+	ClusterLabel  = "kind.meln5674.github.com/cluster"
+	ReleasePrefix = "kink-"
 )
 
 func IsKinkRelease(name string) bool {
-	return strings.HasPrefix(name, "kink-")
+	return strings.HasPrefix(name, ReleasePrefix)
+}
+
+func GetReleaseClusterName(release string) (string, bool) {
+	if !IsKinkRelease(release) {
+		return "", false
+	}
+
+	return strings.TrimPrefix(release, ReleasePrefix), true
 }
 
 type HelmFlags struct {

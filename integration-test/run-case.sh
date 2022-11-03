@@ -15,7 +15,7 @@ KINK_COMMAND=( bin/kink.cover --config "${KINK_CONFIG_FILE}" --name "${KINK_CLUS
 
 KINK_KUBECONFIG=integration-test/kink-${TEST_CASE}.kubeconfig
 
-if ! ("${KINK_COMMAND[@]}" get cluster | tee /dev/stderr | grep "kink-${KINK_CLUSTER_NAME}") || [ -z "${KINK_IT_NO_KINK_CREATE}" ]; then
+if ! ("${KINK_COMMAND[@]}" get cluster | tee /dev/stderr | grep -w "${KINK_CLUSTER_NAME}") || [ -z "${KINK_IT_NO_KINK_CREATE}" ]; then
     "${KINK_COMMAND[@]}" create cluster \
         --set image.repository="${IMAGE_REPO}" \
         --set image.tag="${IMAGE_TAG}" \

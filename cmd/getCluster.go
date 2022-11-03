@@ -45,13 +45,14 @@ var getClusterCmd = &cobra.Command{
 			}
 
 			for _, release := range releases {
-				if !helm.IsKinkRelease(release["name"].(string)) {
+				clusterName, isCluster := helm.GetReleaseClusterName(release["name"].(string))
+				if !isCluster {
 					continue
 				}
 				if config.Release.Namespace != "" {
-					fmt.Printf("%s %s\n", release["namespace"], release["name"])
+					fmt.Printf("%s %s\n", release["namespace"], clusterName)
 				} else {
-					fmt.Println(release["name"])
+					fmt.Println(clusterName)
 				}
 			}
 
