@@ -2,7 +2,6 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
-
 image:
   repository: ghcr.io/meln5674/kink
   pullPolicy: IfNotPresent
@@ -36,6 +35,11 @@ kubelet:
     accessModes:
     - ReadWriteOnce
     storageClassName: 
+
+extraEnv: []
+extraArgs: []
+extraVolumes: []
+extraVolumeMounts: []
 
 controlplane:
   replicaCount: 1
@@ -116,6 +120,11 @@ controlplane:
   defaultTaint: true
   extraTaints: [] # { key: "", value: "", effect: "" }
 
+  extraEnv: []
+  extraArgs: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
 worker:
   serviceAccount:
     # Specifies whether a service account should be created
@@ -187,6 +196,12 @@ worker:
     storageClassName: 
     extraMounts:
     - /opt/local-path-provisioner
+
+  extraEnv: []
+  extraArgs: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
 
 sharedPersistence:
   enabled: false

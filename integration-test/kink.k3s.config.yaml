@@ -13,3 +13,26 @@ release:
     worker.persistence.enabled: "true"
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
+    extraEnv[0].name: foo
+    extraEnv[0].value: bar
+    controlplane.extraEnv[0].name: qux
+    controlplane.extraEnv[0].value: quux
+    workers.extraEnv[0].name: quuux
+    workers.extraEnv[0].value: quuuux
+    extraVolumes[0].name: foo
+    extraVolumes[0].emptyDir.medium: ""
+    controlplane.extraVolumes[0].name: bar
+    controlplane.extraVolumes[0].emptyDir.medium: ""
+    workers.extraVolumes[0].name: baz
+    workers.extraVolumes[0].emptyDir.medium: ""
+    extraVolumeMounts[0].name: foo
+    extraVolumeMounts[0].mountPath: /tmp/foo
+    controlplane.extraVolumeMounts[0].name: bar
+    controlplane.extraVolumeMounts[0].mountPath: /tmp/bar
+    workers.extraVolumeMounts[0].name: baz
+    workers.extraVolumeMounts[0].mountPath: /tmp/baz
+    extraArgs[0]: -v
+    controlplane.extraArgs[0]: '--debug'
+    workers.extraArgs[0]: '--node-label=foo=bar'
+  setString:
+    extraArgs[1]: '1'

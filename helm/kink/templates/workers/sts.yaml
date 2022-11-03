@@ -52,6 +52,12 @@ spec:
                 name: {{ include "kink.fullname" . }}
                 key: token
                 {{- end }}
+          {{- with .Values.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
           command:
           - sh
           - -cxe
@@ -64,6 +70,12 @@ spec:
           args:
           - agent
           - '--server={{ include "kink.controlplane.url" . }}'
+          {{- with .Values.extraArgs }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraArgs }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
           ports:
             - name: kubelet-metrics
               containerPort: 10250
@@ -110,6 +122,12 @@ spec:
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
           {{- end }}
+          {{- with .Values.extraVolumesMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraVolumesMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
 
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:
@@ -136,6 +154,12 @@ spec:
       - name: shared-data
         persistentVolumeClaim:
           claimName: {{ include "kink.fullname" . }}-shared
+      {{- end }}
+      {{- with .Values.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
+      {{- end }}
+      {{- with .Values.controlplane.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
       {{- end }}
   volumeClaimTemplates:
   {{- if .Values.worker.persistence.enabled }}

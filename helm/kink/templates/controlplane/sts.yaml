@@ -42,8 +42,8 @@ spec:
             {{- toYaml .Values.controlplane.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- if gt (int .Values.controlplane.replicaCount) 1 }}
           env:
+          {{- if gt (int .Values.controlplane.replicaCount) 1 }}
           - name: POD_NAME
             valueFrom:
               fieldRef:
@@ -56,6 +56,12 @@ spec:
             value: '{{ $dataDir }}/server/db/etcd/config'
           - name: ETCD_NAME_FILE
             value: '{{ $dataDir }}/server/db/etcd/name'
+          {{- end }}
+          {{- with .Values.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
           {{- end }}
           command: [sh, -cxe]
           args:
@@ -107,6 +113,12 @@ spec:
             mountPath: /{{ . }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
+          {{- with .Values.extraVolumesMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraVolumesMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -128,6 +140,12 @@ spec:
                 name: {{ include "kink.fullname" . }}
                 key: token
                 {{- end }}
+          {{- with .Values.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
           command:
           - sh
           - -ce
@@ -166,6 +184,12 @@ spec:
           {{- end }}
           {{- range $taint := .Values.controlplane.extraTaints }}
           - --node-taint='{{ $taint.key }}={{ $taint.value }}:{{ $taint.effect }}'
+          {{- end }}
+          {{- with .Values.extraArgs }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraArgs }}
+          {{- . | toYaml | nindent 10 }}
           {{- end }}
           ports:
             - name: api
@@ -252,6 +276,12 @@ spec:
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
           {{- end }}
+          {{- with .Values.extraVolumesMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraVolumesMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
 
       {{- with .Values.controlplane.nodeSelector }}
       nodeSelector:
@@ -278,6 +308,12 @@ spec:
       - name: shared-data
         persistentVolumeClaim:
           claimName: {{ include "kink.fullname" . }}-shared
+      {{- end }}
+      {{- with .Values.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
+      {{- end }}
+      {{- with .Values.controlplane.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
       {{- end }}
   volumeClaimTemplates:
   {{- if .Values.controlplane.persistence.enabled }}
