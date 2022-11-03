@@ -57,6 +57,7 @@ type ReleaseFlags struct {
 	ClusterName  string            `json:"clusterName"`
 	Values       []string          `json:"values"`
 	Set          map[string]string `json:"set"`
+	SetString    map[string]string `json:"setString"`
 	UpgradeFlags []string          `json:"upgradeFlags"`
 }
 
@@ -65,6 +66,7 @@ func (r *ReleaseFlags) Override(r2 *ReleaseFlags) {
 	util.OverrideString(&r.ClusterName, &r2.ClusterName)
 	util.OverrideStringSlice(&r.Values, &r2.Values)
 	util.OverrideStringToString(&r.Set, &r2.Set)
+	util.OverrideStringToString(&r.SetString, &r2.SetString)
 }
 
 func (r *ReleaseFlags) ReleaseName() string {
@@ -111,6 +113,9 @@ func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags)
 	}
 	for k, v := range r.Set {
 		cmd = append(cmd, "--set", fmt.Sprintf("%s=%s", k, v))
+	}
+	for k, v := range r.SetString {
+		cmd = append(cmd, "--set-string", fmt.Sprintf("%s=%s", k, v))
 	}
 	cmd = append(cmd, r.ExtraLabelFlags()...)
 	cmd = append(cmd, r.UpgradeFlags...)

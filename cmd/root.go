@@ -64,6 +64,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", cfg.DefaultClusterName, "Name of the kink cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&configOverrides.Release.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")
 	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.Set, "set", map[string]string{}, "Extra field overrides to use when creating cluster")
+	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.SetString, "set-string", map[string]string{}, "Extra field overrides to use when creating cluster, forced interpreted as strings")
 	// TODO: Add flags for docker
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Kubernetes.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig file to use for CLI requests.")
 	clientcmd.BindOverrideFlags(&configOverrides.Kubernetes.ConfigOverrides, rootCmd.PersistentFlags(), clientcmd.RecommendedConfigOverrideFlags(""))
