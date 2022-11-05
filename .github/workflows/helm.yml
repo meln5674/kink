@@ -47,7 +47,7 @@ jobs:
             yq -i '.appVersion = "${{ steps.tagName.outputs.tag }}"' '${{ env.CHART_DIR }}/Chart.yaml'
           else
             yq -i '.version = .version + "-'"${GITHUB_SHA}"'"' '${{ env.CHART_DIR }}/Chart.yaml'
-            yq -i '.appVersion = "'"${GITHUB_SHA}"'"' '${{ env.CHART_DIR }}/Chart.yaml'
+            yq -i '.appVersion = "sha-'"${GITHUB_SHA}"'"' '${{ env.CHART_DIR }}/Chart.yaml'
 
 
           fi
