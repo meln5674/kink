@@ -26,6 +26,8 @@ if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
     wait "${DELETE_PID}"
 
     "${TRAP_CMD}"
+
+    exit 0
 EOF
 )
     trap "set +e ; ${TRAP_CMD}" EXIT
@@ -41,3 +43,5 @@ sleep 20
 kubectl logs -f "job/kink-test-${TEST_CASE}"
 
 wait "${UPGRADE_PID}"
+
+echo "${TEST_CASE} Passed!"

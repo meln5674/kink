@@ -100,8 +100,9 @@ export KUBECONFIG="${KIND_KUBECONFIG}"
 
 # helm upgrade --install -n 
 
+ALL_TEST_CASES='k3s k3s-single k3s-ha rke2'
 
-for test_case in ${TEST_CASES:-k3s k3s-ha rke2}; do
+for test_case in ${TEST_CASES:-${ALL_TEST_CASES}}; do
     TEST_CASE="${test_case}" \
     IMAGE_REPO="${IMAGE_REPO}" \
     IMAGE_TAG="${IMAGE_TAG}" \
@@ -111,7 +112,13 @@ for test_case in ${TEST_CASES:-k3s k3s-ha rke2}; do
     integration-test/run-case.sh 
 done
 
-for test_case in ${IN_CLUSTER_TEST_CASES:-k3s k3s-ha rke2}; do
+if [ -n "$( sed 's/\s//' <<< "${TEST_CASES}" )" ]; then
+    echo All out-of-cluster tests Passed!
+else
+    echo No out-of-cluster-tests were run...
+fi
+
+for test_case in ${IN_CLUSTER_TEST_CASES:-${ALL_TEST_CASES}}; do
     TEST_CASE="${test_case}" \
     IMAGE_REPO="${IMAGE_REPO}" \
     IMAGE_TAG="${IMAGE_TAG}" \
@@ -120,3 +127,10 @@ for test_case in ${IN_CLUSTER_TEST_CASES:-k3s k3s-ha rke2}; do
     KINK_IT_NO_CLEANUP="${KINK_IT_NO_CLEANUP}" \
     integration-test/run-case-in-cluster.sh 
 done
+
+
+if [ -n "$( sed 's/\s//' <<< "${IN_CLUSTER_TEST_CASES}" )" ]; then
+    echo All in-cluster tests Passed!
+else
+    echo No in-cluster-tests were run...
+fi

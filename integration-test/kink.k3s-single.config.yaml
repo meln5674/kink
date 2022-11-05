@@ -1,0 +1,15 @@
+apiVersion: kink.meln5674.github.com/v0
+Kind: Config
+chart:
+    chart: ./helm/kink
+release:
+  set:
+    image.pullPolicy: Never
+    controlplane.securityContext.privileged: "true"
+    controlplane.replicaCount: "1"
+    controlplane.persistence.enabled: "true"
+    controlplane.defaultTaint: "false"
+    worker.replicaCount: "0"
+    sharedPersistence.enabled: "true"
+    sharedPersistence.storageClassName: "shared-local-path"
+    

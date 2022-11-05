@@ -42,9 +42,15 @@ WORDPRESS_IMAGE=docker.io/bitnami/wordpress:6.0.3-debian-11-r3
 MARIADB_IMAGE=docker.io/bitnami/mariadb:10.6.10-debian-11-r6
 MEMCACHED_IMAGE=docker.io/bitnami/memcached:1.6.17-debian-11-r15
 
+LOAD_FLAGS=
+
+if [ -e "integration-test/kink.${TEST_CASE}.load-flags" ]; then
+    LOAD_FLAGS=$(cat "integration-test/kink.${TEST_CASE}.load-flags")
+fi
+
 if [ -z "${KINK_IT_NO_LOAD}" ]; then 
     docker pull "${WORDPRESS_IMAGE}" 
-    "${KINK_COMMAND[@]}" load docker-image \
+    "${KINK_COMMAND[@]}" ${LOAD_FLAGS} load ${LOAD_FLAGS} docker-image \
         --config "${KINK_CONFIG_FILE}" \
         --name "${KINK_CLUSTER_NAME}" \
         --image "${WORDPRESS_IMAGE}" \
@@ -52,14 +58,14 @@ if [ -z "${KINK_IT_NO_LOAD}" ]; then
 
     docker pull "${MARIADB_IMAGE}"
     docker save "${MARIADB_IMAGE}" > ./integration-test/mariadb.tar
-    "${KINK_COMMAND[@]}" load docker-archive --archive ./integration-test/mariadb.tar
+    "${KINK_COMMAND[@]}" load ${LOAD_FLAGS} docker-archive --archive ./integration-test/mariadb.tar
 
     buildah build-using-dockerfile \
         --file - \
         --tag "${MEMCACHED_IMAGE}" \
         <<< "FROM ${MEMCACHED_IMAGE}"
     buildah push "${MEMCACHED_IMAGE}" "oci-archive:./integration-test/memcached-image.tar:${MEMCACHED_IMAGE}"
-    "${KINK_COMMAND[@]}" load oci-archive --archive ./integration-test/memcached-image.tar
+    "${KINK_COMMAND[@]}" load ${LOAD_FLAGS} oci-archive --archive ./integration-test/memcached-image.tar
 fi
 
 helm repo add bitnami https://charts.bitnami.com/bitnami
@@ -80,18 +86,7 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
     helm upgrade --install wordpress bitnami/wordpress \
         --version "${WORDPRESS_CHART_VERSION}" \
         --wait \
-        --set persistence.enabled=true \
-        --set persistence.storageClass=shared-local-path \
-        --set persistence.accessModes='{ReadWriteMany}' \
-        --set replicaCount=2 \
-        --set podAntiAffinityPreset=hard \
-        --set mariadb.enabled=true \
-        --set memcached.enabled=true \
-        --set service.type=ClusterIP \
-        --set ingress.enabled=true \
-        --set image.pullPolicy=Never \
-        --set mariadb.image.pullPolicy=Never \
-        --set memcached.image.pullPolicy=Never \
+        $(cat "integration-test/wordpress.${TEST_CASE}.flags") \
         --debug
 
     if [ -z "${KINK_IT_NO_CLEANUP}" ]; then

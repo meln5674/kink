@@ -1,0 +1,13 @@
+--set persistence.enabled=true
+--set persistence.storageClass=shared-local-path
+--set persistence.accessModes={ReadWriteMany}
+--set replicaCount=2
+--set podAntiAffinityPreset=hard
+--set mariadb.enabled=true
+--set memcached.enabled=true
+--set service.type=ClusterIP
+--set ingress.enabled=true
+--set image.pullPolicy=Never
+--set mariadb.image.pullPolicy=Never
+--set memcached.image.pullPolicy=Never
+
