@@ -1,0 +1,67 @@
+name: Helm
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags: [ 'v*.*.*' ]
+
+env:
+  CHART_DIR: helm/kink
+
+jobs:
+  release:
+    # depending on default permission settings for your org (contents being read-only or read-write for workloads), you will have to add permissions
+    # see: https://docs.github.com/en/actions/security-guides/automatic-token-authentication#modifying-the-permissions-for-the-github_token
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Get Tag
+        id: tagName
+        uses: olegtarasov/get-tag@v2.1
+
+      - name: Install Helm
+        uses: azure/setup-helm@v1
+        with:
+          version: v3.8.1
+      
+      - name: Install YQ
+        uses: chrisdickinson/setup-yq@latest
+        with:
+          yq-version: v4.27.2
+        
+      - name: Set Chart Version
+        run: |
+          if [ -n "${{ steps.tagName.outputs.tag }}" ]; then
+            yq -i '.version = "${{ steps.tagName.outputs.tag }}"' '${{ env.CHART_DIR }}/Chart.yaml'
+            yq -i '.appVersion = "${{ steps.tagName.outputs.tag }}"' '${{ env.CHART_DIR }}/Chart.yaml'
+          else
+            yq -i '.version = .version + "-'"${GITHUB_SHA}"'"' '${{ env.CHART_DIR }}/Chart.yaml'
+            yq -i '.appVersion = "'"${GITHUB_SHA}"'"' '${{ env.CHART_DIR }}/Chart.yaml'
+
+
+          fi
+
+      - name: Lint
+        run: |
+          helm lint '${{ env.CHART_DIR }}'
+          helm template '${{ env.CHART_DIR }}'
+          # Need to do this otherwise it will end up publishing the test chart
+          rm -rf helm/kink-test
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.4.0
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        with:
+          charts_dir: helm
