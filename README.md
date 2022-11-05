@@ -22,24 +22,26 @@ KinK is based off of [k3s](https://k3s.io/), a super-lightweight Kubernetes dist
 
 ## Getting Started
 
-To start, build the base image, and push it to a registry available to your cluster
+### Prerequisites
 
-```bash
-docker build -t <image registry>:<image name>:<image tag> .
-docker push <image registry>/<image name>:<image tag>
-```
+Kink depends on the following tools being available on the $PATH
 
-Next, install the CLI interface
+* [docker](https://docs.docker.com/engine/install/) (Only necessary if you intend to load images from a docker daemon into your cluster)
+* [kubectl](https://kubernetes.io/docs/tasks/tools/#kubectl)
+* [helm](https://helm.sh/docs/intro/install/)
+
+### Installation
 
 ```bash
 go install github.com/meln5674/kink@latest
 ```
 
+### Create Cluster
+
 You'll now be able to deploy your cluster
 
 ```bash
 kink create cluster \
-    --chart ./helm/kink \
     # Set to the image you built
     --set image.repository=<image registry>/<image name> \
     --set image.tag=<image tag> \
@@ -161,3 +163,7 @@ See [here](./examples/role.yaml) for a role with the minimal set of permissions 
 ### Test Local Chart and Images
 
 If you are making a fork and wish to test your local version, use `--set image.repository`, `--set image.tag` to point to your locally built image (or within your private image registry, along with `--set imagePullSecrets[0].name`, if necessary), and use `--chart` to point to a local chart, or use `--repository-url`, `--chart`, and `--chart-version` to point to a private chart repository.
+
+### Off-$PATH Commands, Debug Logs, and Extra Flags
+
+KinK uses [klog](https://github.com/kubernetes/klog), so it uses the same flags as common tools like kubectl, e.g. `-v` to set logging options. To enable debugging logs for the tools KinK calls out to, use the `--*-command` flags, e.g. `--kubectl-command=kubectl,-v,10` or `--helm-command=helm,--debug`. This can also be used to specify an absolute path or non-default name for these tools, as well as to add arbitrary extra flags to them.
