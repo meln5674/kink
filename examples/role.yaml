@@ -1,0 +1,33 @@
+# This role is the minimal set of permissions for full use of kink
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kink
+rules:
+# For helm install/upgrade
+- apiGroups: ['']
+  resources: [services,persistentvolumeclaims,serviceaccounts,secrets,configmaps]
+  verbs: ['*']
+- apiGroups: [apps]
+  resources: [statefulsets]
+  verbs: ['*']
+- apiGroups: [networking.k8s.io]
+  resources: [ingresses]
+  verbs: ['*']
+# For inspecting deployed clusters
+- apiGroups: ['']
+  resources: [pods]
+  verbs: [get,list,watch]
+# For extracting kubeconfig
+- apiGroups: ['']
+  resources: [pods/exec]
+  verbs: [create]
+# For forwading controlplane/ingress ports
+- apiGroups: ['']
+  resources: [pods/portforward]
+  verbs: [create]
+# Not strictly necesary, but good luck debugging without it
+- apiGroups: ['']
+  resources: [pods/logs]
+  verbs: [get]
+

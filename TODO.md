@@ -1,7 +1,4 @@
-* Finish RKE2 support
 * Test ingress
-* Add option for shared storage
-    * This would be done by adding a second local-path-provisioner pointed at /opt/shared-local-path-provisioner, and a standalone ReadWriteMany PVC, and mounting it there for all nodes
 * Add option for multiple storage classes
     * In theory, it should be possible to offer multiple storage classes by creating multiple instances of the local path provisioner at multiple mount points backed by different real PVCs of different storage classes, and creating StorageClasses with identical names. This should, again in theory, make it possible to test applications which depend on different host storage classes
     * Would need to find a suitable test app
@@ -18,7 +15,6 @@
 * Make a version that uses kindest/node? - Probably not
 * Add an optional post-hook job which pulls the kubeconfig into a secret via kubectl exec and kubectl create secret
 * Language bindings for in-language tests?
-* Add integration tests for running in-cluster
 * Forward signals in exec/sh
 * Find way to forward cluster helm values to bundled chart (e.g local-path-provisioner) values
 * Find funding and write integration tests which leverage CSP's
@@ -27,3 +23,4 @@
     * Run integration tests in actions and see how long until I get rate limited
 * Re-write integration tests in Go using Ginkgo
 * Create secret w/ kubeconfig on cluster creation. Add separate clusters/contexts for localhost, in-cluster, and via external access via url provided by flag
+* Extract command functions into pkg/ for use in other projects
