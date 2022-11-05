@@ -55,4 +55,5 @@ func init() {
 	// is called directly, e.g.:
 	// shCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	shCmd.Flags().StringVar(&exportedKubeconfigPath, "exported-kubeconfig", "", "Path to kubeconfig exported during `create cluster` or `export kubeconfig` instead of copying it again")
+	shCmd.Flags().BoolVar(&portForwardForExec, "port-forward", true, "Set up a localhost port forward for the controlplane during execution. Set to false if using a background `kink port-forward` command.")
 }

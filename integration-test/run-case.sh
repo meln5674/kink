@@ -73,7 +73,7 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 "${KINK_COMMAND[@]}" sh --exported-kubeconfig="${KINK_KUBECONFIG}" -- '
     set -xe
     while ! kubectl version ; do
-        sleep 10;
+        sleep 1;
     done
     kubectl cluster-info
     kubectl get nodes
@@ -95,16 +95,24 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
     fi
 
     kubectl get all -A
-    kubectl port-forward svc/wordpress 8080:80 &
-    PORT_FORWARD_PID=$!
-    TRAP_CMD="kill ${PORT_FORWARD_PID} ; ${TRAP_CMD}"
-    trap "set +e; ${TRAP_CMD}" EXIT
-    sleep 5
-    curl -v http://localhost:8080
 '
 
 "${KINK_COMMAND[@]}" export kubeconfig --out-kubeconfig="${KINK_KUBECONFIG}"
 
 cat "${KINK_KUBECONFIG}"
+
+"${KINK_COMMAND[@]}" port-forward &
+KINK_PORT_FORWARD_PID=$!
+TRAP_CMD="kill ${KINK_PORT_FORWARD_PID} ; ${TRAP_CMD}"
+while ! kubectl version --kubeconfig="${KINK_KUBECONFIG}" ; do
+    sleep 1;
+done
+kubectl port-forward svc/wordpress 8080:80 --kubeconfig="${KINK_KUBECONFIG}" &
+PORT_FORWARD_PID=$!
+TRAP_CMD="kill ${PORT_FORWARD_PID} ; ${TRAP_CMD}"
+trap "set +e; ${TRAP_CMD}" EXIT
+sleep 5
+curl -v http://localhost:8080
+
 
 echo "${TEST_CASE}" Passed!

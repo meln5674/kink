@@ -10,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	"os"
 	"os/exec"
-	"time"
 
 	"github.com/meln5674/gosh"
 	"github.com/spf13/cobra"
@@ -30,6 +29,7 @@ const (
 
 var (
 	exportedKubeconfigPath string
+	portForwardForExec     bool
 )
 
 // execCmd represents the exec command
@@ -68,6 +68,7 @@ func init() {
 	// is called directly, e.g.:
 	// execCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	execCmd.Flags().StringVar(&exportedKubeconfigPath, "exported-kubeconfig", "", "Path to kubeconfig exported during `create cluster` or `export kubeconfig` instead of copying it again")
+	execCmd.Flags().BoolVar(&portForwardForExec, "port-forward", true, "Set up a localhost port forward for the controlplane during execution. Set to false if using a background `kink port-forward` command.")
 }
 
 func execWithGateway(toExec *gosh.Cmd) {
@@ -110,33 +111,12 @@ func execWithGateway(toExec *gosh.Cmd) {
 			exportedKubeconfigPath = kubeconfig.Name()
 		}
 
-		// TODO: Get service name/remote port from chart (helm get manifest)
-		// TODO: Make local port configurable with flag
-		kubectlPortForward := kubectl.PortForward(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("svc/kink-%s-controlplane", config.Release.ClusterName), map[string]string{"6443": "6443"})
-		kubectlPortForwardCmd := gosh.
-			Command(kubectlPortForward...).
-			WithContext(ctx).
-			WithStreams(gosh.ForwardOutErr)
-
-		err = kubectlPortForwardCmd.Start()
-
-		if err != nil {
-			return nil, errors.Wrap(err, "Failed to start port-forwarding to controlplane")
-		}
-		defer func() {
-			// Deliberately ignoing the errors here
-			kubectlPortForwardCmd.Kill()
-			kubectlPortForwardCmd.Wait()
-		}()
-
-		klog.Info("Waiting for cluster to be accessible on localhost...")
-		kubectlVersion := kubectl.Version(&config.Kubectl, &config.Kubernetes)
-		for err = errors.New("dummy"); err != nil; err = gosh.
-			Command(kubectlVersion...).
-			WithContext(ctx).
-			WithStreams(gosh.ForwardOutErr).
-			Run() {
-			time.Sleep(5 * time.Second)
+		if portForwardForExec {
+			stopPortForward, err := portForward(ctx)
+			if err != nil {
+				return nil, err
+			}
+			defer stopPortForward()
 		}
 
 		err = toExec.
