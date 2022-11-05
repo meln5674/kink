@@ -60,6 +60,7 @@ func init() {
 	rootCmd.PersistentFlags().StringSliceVar(&configOverrides.Docker.Command, "docker-command", []string{"docker"}, "Command to execute for docker")
 
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.ChartName, "chart", "kink", "Name of KinK Helm Chart")
+	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.Version, "chart-version", "", "Version of the chart to install")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.RepositoryURL, "repository-url", "https://meln5674.github.io/kink", "URL of KinK Helm Chart repository")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", cfg.DefaultClusterName, "Name of the kink cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&configOverrides.Release.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")

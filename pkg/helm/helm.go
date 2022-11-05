@@ -112,7 +112,7 @@ func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags)
 
 	cmd = append(cmd, "upgrade", "--install", "--wait", r.ReleaseName(), c.FullChartName())
 	if c.Version != "" {
-		cmd = append(cmd, "--version", c.ChartName)
+		cmd = append(cmd, "--version", c.Version)
 	}
 	if r.Namespace != "" {
 		cmd = append(cmd, "--namespace", r.Namespace)
