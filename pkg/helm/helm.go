@@ -50,7 +50,10 @@ func (c *ChartFlags) IsLocalChart() bool {
 }
 
 func (c *ChartFlags) RepoName() string {
-	return strings.ReplaceAll(c.RepositoryURL, "/", "-")
+	name := c.RepositoryURL
+	name = strings.ReplaceAll(name, "/", "-")
+	name = strings.ReplaceAll(name, ":", "-")
+	return name
 }
 
 func (c *ChartFlags) FullChartName() string {
