@@ -109,6 +109,15 @@ func RepoAdd(h *HelmFlags, c *ChartFlags, r *ReleaseFlags) []string {
 	return cmd
 }
 
+func RepoUpdate(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, repoNames ...string) []string {
+	cmd := make([]string, len(h.Command))
+	copy(cmd, h.Command)
+	cmd = append(cmd, "repo", "update")
+	cmd = append(cmd, repoNames...)
+
+	return cmd
+}
+
 func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
 	cmd := make([]string, len(h.Command))
 	copy(cmd, h.Command)

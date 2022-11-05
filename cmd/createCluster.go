@@ -14,6 +14,10 @@ import (
 	"github.com/meln5674/kink/pkg/helm"
 )
 
+var (
+	doRepoUpdate bool
+)
+
 // createClusterCmd represents the createCluster command
 var createClusterCmd = &cobra.Command{
 	Use:   "cluster",
@@ -40,7 +44,22 @@ var createClusterCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
+				if doRepoUpdate {
+					repoUpdate := helm.RepoUpdate(&config.Helm, &config.Chart, &config.Release, config.Chart.RepoName())
+					klog.Info("Updating chart repo...")
+					err = gosh.
+						Command(repoUpdate...).
+						WithContext(ctx).
+						WithStreams(gosh.ForwardOutErr).
+						Run()
+					if err != nil {
+						return err
+					}
+				} else {
+					klog.Info("Chart repo update skipped by flag")
+				}
 			}
+
 			klog.Info("Deploying chart...")
 			helmUpgrade := helm.Upgrade(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
 			err = gosh.
@@ -77,4 +96,5 @@ func init() {
 	// createClusterCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	createClusterCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
 	createClusterCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL")
+	createClusterCmd.Flags().BoolVar(&doRepoUpdate, "repo-update", true, "Update the helm repo before upgrading. Note that if a new chart version has become availabe since install or last upgrade, this will result in upgrading the chart. If this unacceptable, set this to false, or use --chart-version to pin a specific version")
 }
