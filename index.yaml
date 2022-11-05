@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  kink:
+  - apiVersion: v2
+    appVersion: 1f321a4231c57175b64e71a229f354d87d61f105
+    created: "2022-11-05T20:18:44.778496323Z"
+    description: A Helm chart for Kubernetes
+    digest: 05bf5af275b22efed06ca89955865ec4221ca3fd2361f44e8b84ea94ac1f6daf
+    name: kink
+    type: application
+    urls:
+    - https://github.com/meln5674/kink/releases/download/kink-0.1.0-1f321a4231c57175b64e71a229f354d87d61f105/kink-0.1.0-1f321a4231c57175b64e71a229f354d87d61f105.tgz
+    version: 0.1.0-1f321a4231c57175b64e71a229f354d87d61f105
+generated: "2022-11-05T20:18:44.778502225Z"
