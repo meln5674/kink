@@ -46,8 +46,10 @@ RUN curl -fvL https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz \
 
 FROM download AS kink
 
+ARG K8S_VERSION=v1.25.3
 
-ARG K3S_VERSION=v1.25.2+k3s1
+ARG K3S_PATCH_NUMBER=1
+ARG K3S_VERSION=${K8S_VERSION}+k3s${K3S_PATCH_NUMBER}
 ARG ARCH= #amd64 # amd64 is the default, not needed
 ARG K3S_URL=
 
@@ -57,7 +59,8 @@ RUN K3S_FILENAME="k3s$([ -n "${ARCH}" ] && echo "-${ARCH}" ; exit 0 )" \
  && curl -fvL "${K3S_URL}" > /usr/local/bin/k3s \
  && chmod 755 /usr/local/bin/k3s
 
-ARG INSTALL_RKE2_VERSION=v1.25.3+rke2r1
+ARG RKE2_PATCH_NUMBER=1
+ARG INSTALL_RKE2_VERSION=${K8S_VERSION}+rke2r${RKE2_PATCH_NUMBER}
 RUN  curl -fvL https://get.rke2.io/ \
   | INSTALL_RKE2_SKIP_RELOAD=1 sh -
 
