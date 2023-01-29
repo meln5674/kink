@@ -1,0 +1,56 @@
+name: CI
+
+env:
+  NO_BUILD_IMAGE: '1'
+  IMAGE_REPO: ghcr.io/meln5674/kink/build-env
+  IMAGE_TAG: github-actions
+
+on:
+  push:
+    branches: '**' 
+    tags: '**'
+  pull_request:
+    branches: '**'
+    tags: '**'
+  workflow_dispatch: {}
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+
+      - uses: actions/checkout@v3
+
+      - name: Get go cache directory path
+        id: gopath-dir-path
+        run: echo "::set-output name=dir::$(echo ~/go)"
+
+      - name: Cache gopath
+        uses: actions/cache/restore@v3
+        id: restore-gopath
+        with:
+          path: ${{ steps.gopath-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-go
+          restore-keys: |
+            ${{ runner.os }}-go
+
+      - name: Install Dependencies
+        id: install-dependencies
+        run: |
+          export GOPATH=~/go
+          mkdir -p "${GOPATH}"
+          ./build-env.sh go mod download
+
+      - name: Cache gopath
+        uses: actions/cache/save@v3
+        id: cache-gopath
+        with:
+          path: ${{ steps.gopath-dir-path.outputs.dir }}
+          key: ${{ runner.os }}-go
+          restore-keys: |
+            ${{ runner.os }}-go
+
+      - name: Run Integration Tests
+        id: run-integration-tests
+        run: |
+          export GOPATH=~/go
+          ./build-env.sh ginkgo test -vv ./e2e
