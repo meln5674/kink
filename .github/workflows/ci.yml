@@ -54,4 +54,4 @@ jobs:
         id: run-integration-tests
         run: |
           export GOPATH=~/go
-          ./build-env.sh ginkgo test -vv ./e2e
+          ./build-env.sh bash -c 'SHELL=/bin/bash ginkgo test -vv ./e2e'
