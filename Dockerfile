@@ -64,6 +64,7 @@ RUN  curl -fvL https://get.rke2.io/ \
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=helm /usr/local/bin/helm /usr/local/bin/helm
 COPY --from=yq /usr/local/bin/yq /usr/local/bin/yq
+COPY --from=etcd /usr/local/bin/etcdctl /usr/local/bin/etcdctl
 
 COPY charts/local-path-provisioner.yaml /etc/kink/extra-manifests/rke2/system/kink-local-path-provisioner.yaml
 COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/rke2/system/kink-shared-local-path-provisioner.yaml
