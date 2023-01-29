@@ -88,7 +88,7 @@ var _ = BeforeSuite(func() {
 	InitKindCluster()
 
 	podWatch := gosh.
-		Command(kubectl.WatchPods(&kubectlOpts, &kindKubeOpts, nil)...).
+		Command(kubectl.WatchPods(&kubectlOpts, &kindKubeOpts, nil, true)...).
 		WithStreams(GinkgoOutErr)
 	ExpectStart(podWatch)
 	DeferCleanup(func() {
@@ -388,7 +388,7 @@ func Case(name string, loadFlags []string, set map[string]string) bool {
 
 			By("Watching pods")
 			podWatch := gosh.
-				Command(kubectl.WatchPods(&kubectlOpts, &kinkKubeOpts, nil)...).
+				Command(kubectl.WatchPods(&kubectlOpts, &kinkKubeOpts, nil, true)...).
 				WithStreams(GinkgoOutErr)
 			ExpectStart(podWatch)
 			DeferCleanup(func() {

@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"strings"
 
-	clientcmd "k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
 	"github.com/meln5674/kink/pkg/config/util"
@@ -32,6 +32,14 @@ type KubeFlags struct {
 func (k *KubeFlags) Override(k2 *KubeFlags) {
 	util.Override(&k.Kubeconfig, &k2.Kubeconfig)
 	util.Override(&k.ConfigOverrides, &k2.ConfigOverrides)
+}
+
+func Kubectl(k *KubectlFlags, ku *KubeFlags, args ...string) []string {
+	cmd := make([]string, 0, len(k.Command))
+	cmd = append(cmd, k.Command...)
+	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
+	cmd = append(cmd, args...)
+	return cmd
 }
 
 func isNillable(v reflect.Value) bool {
@@ -203,10 +211,8 @@ func (k *KubeFlags) Flags() map[string]string {
 }
 
 func GetPods(k *KubectlFlags, ku *KubeFlags, labels map[string]string) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "get", "pod", "--output", "json")
+	args := make([]string, 0, 4+len(labels)*2)
+	args = append(args, "get", "pod", "--output", "json")
 	if len(labels) != 0 {
 		labelString := strings.Builder{}
 		first := true
@@ -219,16 +225,14 @@ func GetPods(k *KubectlFlags, ku *KubeFlags, labels map[string]string) []string 
 			labelString.WriteString(v)
 			first = false
 		}
-		cmd = append(cmd, "--selector", labelString.String())
+		args = append(args, "--selector", labelString.String())
 	}
-	return cmd
+	return Kubectl(k, ku, args...)
 }
 
-func WatchPods(k *KubectlFlags, ku *KubeFlags, labels map[string]string) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "get", "pod", "--watch")
+func WatchPods(k *KubectlFlags, ku *KubeFlags, labels map[string]string, allNamespaces bool) []string {
+	args := make([]string, 0, 3+len(labels)*2+1)
+	args = append(args, "get", "pod", "--watch")
 	if len(labels) != 0 {
 		labelString := strings.Builder{}
 		first := true
@@ -241,82 +245,59 @@ func WatchPods(k *KubectlFlags, ku *KubeFlags, labels map[string]string) []strin
 			labelString.WriteString(v)
 			first = false
 		}
-		cmd = append(cmd, "--selector", labelString.String())
+		args = append(args, "--selector", labelString.String())
 	}
-	return cmd
+	if allNamespaces {
+		args = append(args, "--all-namespaces")
+	}
+	return Kubectl(k, ku, args...)
 }
 
 func ConfigCurrentContext(k *KubectlFlags, ku *KubeFlags) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "config", "current-context")
-
-	return cmd
+	return Kubectl(k, ku, "config", "current-context")
 }
 
 func ConfigGetContext(k *KubectlFlags, ku *KubeFlags, context string) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "config", "get", context, "--output", "json")
-
-	return cmd
+	return Kubectl(k, ku, "config", "get", context, "--output", "json")
 }
 
 func PortForward(k *KubectlFlags, ku *KubeFlags, target string, mappings map[string]string) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "port-forward", target)
+	args := make([]string, 0, 2+len(mappings))
+	args = append(args, "port-forward", target)
 
 	for local, remote := range mappings {
-		cmd = append(cmd, fmt.Sprintf("%s:%s", local, remote))
+		args = append(args, fmt.Sprintf("%s:%s", local, remote))
 	}
-	return cmd
+	return Kubectl(k, ku, args...)
 }
 
 func Exec(k *KubectlFlags, ku *KubeFlags, target string, stdin, tty bool, exec ...string) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "exec", target)
+	args := make([]string, 0, 4+len(exec))
+	args = append(args, "exec", target)
 	if stdin {
-		cmd = append(cmd, "--stdin")
+		args = append(args, "--stdin")
 	}
 	if tty {
-		cmd = append(cmd, "--tty")
+		args = append(args, "--tty")
 	}
-	cmd = append(cmd, "--")
-	cmd = append(cmd, exec...)
-	return cmd
+	args = append(args, "--")
+	args = append(args, exec...)
+	return Kubectl(k, ku, args...)
 }
 
 func Cp(k *KubectlFlags, ku *KubeFlags, target, src, dest string) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "cp")
-	cmd = append(cmd, fmt.Sprintf("%s:%s", target, src), dest)
-	return cmd
+	return Kubectl(k, ku, "cp", fmt.Sprintf("%s:%s", target, src), dest)
 }
 
 func Version(k *KubectlFlags, ku *KubeFlags) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "version")
-	return cmd
-
+	return Kubectl(k, ku, "version")
 }
 
 func ConfigSetCluster(k *KubectlFlags, ku *KubeFlags, cluster string, data map[string]string) []string {
-	cmd := make([]string, len(k.Command))
-	copy(cmd, k.Command)
-	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
-	cmd = append(cmd, "config", "set-cluster", cluster)
+	args := make([]string, 0, 3+len(data))
+	args = append(args, "config", "set-cluster", cluster)
 	for k, v := range data {
-		cmd = append(cmd, fmt.Sprintf("--%s=%s", k, v))
+		args = append(args, fmt.Sprintf("--%s=%s", k, v))
 	}
-	return cmd
+	return Kubectl(k, ku, args...)
 }
