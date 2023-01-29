@@ -3,9 +3,11 @@ package e2e_test
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -178,6 +180,12 @@ func (k *KindOpts) DeleteCluster() *gosh.Cmd {
 }
 
 func InitKindCluster() {
+	pwd, err := os.Getwd()
+	Expect(err).ToNot(HaveOccurred())
+	kindConfig, err := ioutil.ReadFile(kindConfigPath + ".tpl")
+	kindConfig = []byte(strings.ReplaceAll(string(kindConfig), "${PWD}", pwd))
+	ioutil.WriteFile(kindConfigPath, kindConfig, 0700)
+
 	ExpectRun(kindOpts.CreateCluster(kindConfigPath, kindKubeconfigPath))
 	DeferCleanup(func() {
 		ExpectRun(kindOpts.DeleteCluster())
