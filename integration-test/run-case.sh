@@ -15,11 +15,18 @@ KINK_COMMAND=( bin/kink.cover --config "${KINK_CONFIG_FILE}" --name "${KINK_CLUS
 
 KINK_KUBECONFIG=integration-test/kink-${TEST_CASE}.kubeconfig
 
+if ps aux | grep port-forward | grep 6443 ; then
+    echo '!!! SOMETHING ELSE IS STILL LISTENING'
+    sleep 30
+fi
+
 if ! ("${KINK_COMMAND[@]}" get cluster | tee /dev/stderr | grep -w "${KINK_CLUSTER_NAME}") || [ -z "${KINK_IT_NO_KINK_CREATE}" ]; then
     "${KINK_COMMAND[@]}" create cluster \
         --set image.repository="${IMAGE_REPO}" \
         --set image.tag="${IMAGE_TAG}" \
         --out-kubeconfig="${KINK_KUBECONFIG}"
+    
+    sleep 15
 fi
 
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
@@ -33,10 +40,12 @@ fi
         sleep 10;
     done
     kubectl cluster-info
-    kubectl get nodes
+    while kubectl get nodes | tee /dev/stderr | grep NotReady; do
+        echo 'Not all nodes are ready yet'
+        sleep 15
+    done
 '
 
-WORDPRESS_CHART_VERSION=15.2.7
 
 WORDPRESS_IMAGE=docker.io/bitnami/wordpress:6.0.3-debian-11-r3
 MARIADB_IMAGE=docker.io/bitnami/mariadb:10.6.10-debian-11-r6
@@ -69,18 +78,27 @@ if [ -z "${KINK_IT_NO_LOAD}" ]; then
 fi
 
 helm repo add bitnami https://charts.bitnami.com/bitnami
+if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
+    TRAP_CMD="${KINK_COMMAND[@]} sh -- 'if helm get values wordpress; then  helm delete wordpress fi' ; ${TRAP_CMD}"
+    trap "set +e; ${TRAP_CMD}" EXIT
+fi
+
+
 
 "${KINK_COMMAND[@]}" sh --exported-kubeconfig="${KINK_KUBECONFIG}" -- '
+
+    WORDPRESS_CHART_VERSION=15.2.7
+
     set -xe
     while ! kubectl version ; do
         sleep 1;
     done
     kubectl cluster-info
     kubectl get nodes
-    
-    kubectl get pods -o wide -w &
+        
+    (set +e ; kubectl get pods -o wide -w ; tail -f /dev/null) &
     GET_PODS_PID=$!
-    TRAP_CMD="kill ${GET_PODS_PID} ; ${TRAP_CMD}"
+    TRAP_CMD="kill ${GET_PODS_PID} ; wait ${GET_PODS_PID} ; ${TRAP_CMD}"
     trap "set +e; ${TRAP_CMD}" EXIT
 
     helm upgrade --install wordpress bitnami/wordpress \
@@ -89,11 +107,6 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
         $(cat "integration-test/wordpress.${TEST_CASE}.flags") \
         --debug
 
-    if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
-        TRAP_CMD="${KINK_COMMAND[@]} exec -- helm delete wordpress ; ${TRAP_CMD}"
-        trap "set +e; ${TRAP_CMD}" EXIT
-    fi
-
     kubectl get all -A
 '
 
@@ -101,17 +114,19 @@ helm repo add bitnami https://charts.bitnami.com/bitnami
 
 cat "${KINK_KUBECONFIG}"
 
-"${KINK_COMMAND[@]}" port-forward &
+(set +e ; "${KINK_COMMAND[@]}" port-forward ; tail -f /dev/null ) &
 KINK_PORT_FORWARD_PID=$!
-TRAP_CMD="kill ${KINK_PORT_FORWARD_PID} ; ${TRAP_CMD}"
+TRAP_CMD="kill ${KINK_PORT_FORWARD_PID} ; wait ${KINK_PORT_FORWARD_PID} ; ${TRAP_CMD}"
 while ! kubectl version --kubeconfig="${KINK_KUBECONFIG}" ; do
     sleep 1;
 done
-kubectl port-forward svc/wordpress 8080:80 --kubeconfig="${KINK_KUBECONFIG}" &
+helm list --kubeconfig="${KINK_KUBECONFIG}" 
+kubectl get svc -A --kubeconfig="${KINK_KUBECONFIG}"
+(set +e ; kubectl port-forward svc/wordpress 8080:80 --kubeconfig="${KINK_KUBECONFIG}" ; tail -f /dev/null) &
 PORT_FORWARD_PID=$!
-TRAP_CMD="kill ${PORT_FORWARD_PID} ; ${TRAP_CMD}"
+TRAP_CMD="kill ${PORT_FORWARD_PID} ; wait ${PORT_FORWARD_PID} ; ${TRAP_CMD}"
 trap "set +e; ${TRAP_CMD}" EXIT
-sleep 5
+sleep 10
 curl -v http://localhost:8080
 
 

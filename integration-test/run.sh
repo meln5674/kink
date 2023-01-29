@@ -61,7 +61,7 @@ export KUBECONFIG="${KIND_KUBECONFIG}"
 
 if [ -z "${KINK_IT_NO_CLEANUP}" ]; then
     # TODO: Use a temporary root container instead of sudo here
-    TRAP_CMD="kind delete cluster --name='${KIND_CLUSTER_NAME}' ; sudo rm -rf integration-test/local-path-provisioner/* ; sudo rm -rf integration-test/shared-local-path-provisionder/* ; ${TRAP_CMD}"
+    TRAP_CMD="kind delete cluster --name='${KIND_CLUSTER_NAME}' ; docker run --rm -v "${PWD}/integration-test/:/tmp/integration-test" centos:7 rm -rf /tmp/integration-test/local-path-provisioner /tmp/integration-test/shared-local-path-provisioner"
     trap "set +e; ${TRAP_CMD}" EXIT
 fi
 
@@ -90,8 +90,8 @@ if [ -n "${KINK_IT_CLEANUP}" ]; then
 fi
 
 
-
-kubectl get pods -o wide -w &
+# We have to tail /dev/null here so that even if this process exits, the trap kill doesn't fail
+(set +e ; kubectl get pods -o wide -w ; tail -f /dev/null ) &
 GET_PODS_PID=$!
 TRAP_CMD="kill ${GET_PODS_PID} ; ${TRAP_CMD}"
 trap "set +e; ${TRAP_CMD}" EXIT

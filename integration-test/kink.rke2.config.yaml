@@ -1,7 +1,5 @@
 apiVersion: kink.meln5674.github.com/v0
 Kind: Config
-chart:
-    chart: ./helm/kink
 release:
   upgradeFlags: ['--timeout=15m']
   set:
