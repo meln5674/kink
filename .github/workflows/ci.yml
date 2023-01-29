@@ -39,6 +39,7 @@ jobs:
           export GOPATH=~/go
           mkdir -p "${GOPATH}"
           ./build-env.sh go mod download
+          ./build-env.sh ./hack/get-local-path-provisioner.sh
 
       - name: Cache gopath
         uses: actions/cache/save@v3
