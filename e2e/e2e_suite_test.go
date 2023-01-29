@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/klog/v2"
 
+	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/meln5674/gosh"
 
 	"github.com/meln5674/kink/pkg/docker"
@@ -135,8 +136,9 @@ func BuildImage() {
 func FetchWordpressImages() {
 	ExpectRun(gosh.Command(docker.Pull(&dockerOpts, wordpressImage)...).WithStreams(GinkgoOutErr))
 	ExpectRun(gosh.Command(docker.Pull(&dockerOpts, mariadbImage)...).WithStreams(GinkgoOutErr))
-	ExpectRun(gosh.Command("buildah", "build-using-dockerfile", "--file", "-", "--tag", memcachedImage).WithStreams(GinkgoOutErr, gosh.StringIn(fmt.Sprintf("FROM %s", memcachedImage))))
-	ExpectRun(gosh.Command("buildah", "push", memcachedImage, fmt.Sprintf("oci-archive:%s:%s", memcachedTarballPath, memcachedImage)).WithStreams(GinkgoOutErr))
+	memcachedImg, err := crane.Pull(memcachedImage)
+	Expect(err).ToNot(HaveOccurred())
+	crane.Save(memcachedImg, memcachedImage, memcachedTarballPath)
 }
 
 type KindOpts struct {
