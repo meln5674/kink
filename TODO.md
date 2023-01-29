@@ -21,6 +21,13 @@
 * Set up mage to build multiple exe's
 * Set up actions to publish exe's, chart, and image
     * Run integration tests in actions and see how long until I get rate limited
-* Re-write integration tests in Go using Ginkgo
 * Create secret w/ kubeconfig on cluster creation. Add separate clusters/contexts for localhost, in-cluster, and via external access via url provided by flag
 * Extract command functions into pkg/ for use in other projects
+* Implement LoadBalancer services:
+    * Each load balancer would create a service in the host cluster that selects all worker pods, the load balancer IP would then be the service cluster IP
+    * To implement initally, add a template to generate said services to helm chart, 'create cluster' would then scan for loadbalancer-type services in the guest cluster and automatically add --set flags
+* Use a similar approach to loadbalancer to map guest ingress hosts and paths to host hosts and paths
+* Eventually, write a service which is installed as a deployment which monitors the guest cluster for ingresses and load balancers and perfoms the above updates automatically
+* Switch commands that need controlplane access from using port-forward to just exec'ing on an available controlplane node
+* After chart is upgraded, wait for all nodes to become ready
+* Refactor ginkgo integration tests into a command that can be used to stand up a dev env like the shell versions allow
