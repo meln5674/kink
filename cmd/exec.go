@@ -1,15 +1,15 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"context"
 	"fmt"
-	"github.com/pkg/errors"
 	"os"
 	"os/exec"
+
+	"github.com/pkg/errors"
 
 	"github.com/meln5674/gosh"
 	"github.com/spf13/cobra"
@@ -76,10 +76,6 @@ func execWithGateway(toExec *gosh.Cmd) {
 		ctx := context.TODO()
 
 		var err error
-		err = loadConfig()
-		if err != nil {
-			return nil, err
-		}
 
 		err = getReleaseValues(ctx)
 		if err != nil {
@@ -99,7 +95,7 @@ func execWithGateway(toExec *gosh.Cmd) {
 				return nil, err
 			}
 			// TODO: Find a live pod first
-			kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), kubeconfigPath, kubeconfig.Name())
+			kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), kubeconfigPath, kubeconfig.Name())
 			err = gosh.
 				Command(kubectlCp...).
 				WithContext(ctx).
@@ -112,7 +108,7 @@ func execWithGateway(toExec *gosh.Cmd) {
 		}
 
 		if portForwardForExec {
-			stopPortForward, err := portForward(ctx)
+			_, stopPortForward, err := portForward(ctx, true)
 			if err != nil {
 				return nil, err
 			}

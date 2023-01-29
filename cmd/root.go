@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -37,6 +36,7 @@ var rootCmd = &cobra.Command{
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return loadConfig() },
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -117,8 +117,9 @@ func loadConfig() error {
 }
 
 func getReleaseValues(ctx context.Context) error {
+	raw := config.Release.Raw()
 	return gosh.
-		Command(helm.GetValues(&config.Helm, &config.Release, &config.Kubernetes, true)...).
+		Command(helm.GetValues(&config.Helm, &raw, &config.Kubernetes, true)...).
 		WithContext(ctx).
 		WithStreams(gosh.FuncOut(gosh.SaveJSON(&releaseValues))).
 		Run()

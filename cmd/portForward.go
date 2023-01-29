@@ -1,12 +1,14 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/meln5674/gosh"
@@ -32,26 +34,21 @@ to quickly create a Cobra application.`,
 			ctx := context.TODO()
 
 			var err error
-			err = loadConfig()
-			if err != nil {
-				return err
-			}
 
 			err = getReleaseValues(ctx)
 			if err != nil {
 				return err
 			}
 
-			stop, err := portForward(ctx)
+			ctx2, stop, err := portForward(ctx, true)
 			if err != nil {
 				return err
 			}
 			defer stop()
 
-			klog.Info("Started port-forwarding to controlplane")
+			<-ctx2.Done()
 
-			// TODO: Sleep until sigint
-			chan interface{}(nil) <- nil
+			klog.Info("Started port-forwarding to controlplane")
 
 			klog.Info("Stopped port-forwarding to controlplane")
 			return nil
@@ -76,18 +73,76 @@ func init() {
 	// portForwardCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
 
-func portForward(ctx context.Context) (stop func() error, err error) {
+func portForward(ctx context.Context, retry bool) (ctx2 context.Context, stop func() error, err error) {
 	// TODO: Get service name/remote port from chart (helm get manifest)
 	// TODO: Make local port configurable with flag
-	kubectlPortForward := kubectl.PortForward(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, fmt.Sprintf("svc/kink-%s-controlplane", config.Release.ClusterName), map[string]string{"6443": "6443"})
-	kubectlPortForwardCmd := gosh.
-		Command(kubectlPortForward...).
-		WithContext(ctx).
-		WithStreams(gosh.ForwardOutErr)
+	ctx2, stopCtx := context.WithCancel(ctx)
 
-	err = kubectlPortForwardCmd.Start()
+	sigChan := make(chan os.Signal, 2)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig, ok := <-sigChan
+		if !ok {
+			klog.Info("Signal channel closed, exiting signal watch")
+			return
+		}
+		klog.Infof("Got signal %s, stopping port forward", sig)
+		stopCtx()
+	}()
+
+	lock := make(chan struct{}, 1)
+
+	start := func() (*gosh.Cmd, error) {
+		kubectlPortForward := kubectl.PortForward(&config.Kubectl, &config.Kubernetes, fmt.Sprintf("svc/kink-%s-controlplane", config.Release.ClusterName), map[string]string{"6443": "6443"})
+		cmd := gosh.
+			Command(kubectlPortForward...).
+			WithContext(ctx2).
+			WithStreams(gosh.ForwardOutErr)
+		return cmd, cmd.Start()
+	}
+
+	kubectlPortForwardCmd, err := start()
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to start port-forwarding to controlplane")
+		return nil, nil, errors.Wrap(err, "Failed to start port-forwarding to controlplane")
+	}
+
+	if retry {
+		go func() {
+			for {
+				var err error
+				func() {
+					lock <- struct{}{}
+					defer func() { <-lock }()
+					if kubectlPortForwardCmd != nil {
+						err = kubectlPortForwardCmd.Wait()
+					}
+				}()
+				select {
+				case _, ok := <-ctx2.Done():
+					if !ok {
+						klog.Info("Context canceled, stopping retry loop")
+						return
+					}
+				default:
+					func() {
+						lock <- struct{}{}
+						defer func() { <-lock }()
+						if kubectlPortForwardCmd != nil {
+							if err != nil {
+								klog.Warning("Port-forwarding to controlplane failed, retrying...: ", err)
+							} else {
+								klog.Warning("Port-forwarding to controlplane stopped without error, retrying...")
+							}
+						}
+						kubectlPortForwardCmd, err = start()
+						if err != nil {
+							klog.Error("Failed to start port-forwarding to controlplane", err)
+							kubectlPortForwardCmd = nil
+						}
+					}()
+				}
+			}
+		}()
 	}
 
 	klog.Info("Waiting for cluster to be accessible on localhost...")
@@ -99,15 +154,22 @@ func portForward(ctx context.Context) (stop func() error, err error) {
 		Run() {
 		time.Sleep(5 * time.Second)
 	}
-	// TODO: Also forward ingress ports, if enabled
+	// TODO: Also forward ingress ports, if enabled, and any nodeport service ports
 
-	return func() error {
+	return ctx2, func() error {
 		var err error
+		stopCtx()
+		signal.Stop(sigChan)
+		close(sigChan)
+		lock <- struct{}{}
+		defer func() { <-lock }()
+		klog.Info("Stopping port-forward to controlplane...")
 		err = kubectlPortForwardCmd.Kill()
 		if err != nil {
-			return err
+			klog.Warning("Failed to kill port-forward, wait may never finish: ", err)
 		}
 		err = kubectlPortForwardCmd.Wait()
+		klog.Info("Stopped port-forward to controlplane")
 		if err != nil {
 			return err
 		}

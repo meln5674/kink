@@ -1,11 +1,11 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"context"
+
 	"k8s.io/klog/v2"
 
 	"github.com/spf13/cobra"
@@ -27,15 +27,11 @@ var createClusterCmd = &cobra.Command{
 		err := func() error {
 			ctx := context.TODO()
 			var err error
-			err = loadConfig()
-			if err != nil {
-				return err
-			}
 			if config.Chart.IsLocalChart() {
 				klog.Info("Using local chart, skipping `repo add`...")
 			} else {
 				klog.Info("Ensuring helm repo exists...")
-				repoAdd := helm.RepoAdd(&config.Helm, &config.Chart, &config.Release)
+				repoAdd := helm.RepoAdd(&config.Helm, &config.Chart)
 				err = gosh.
 					Command(repoAdd...).
 					WithContext(ctx).
@@ -45,7 +41,7 @@ var createClusterCmd = &cobra.Command{
 					return err
 				}
 				if doRepoUpdate {
-					repoUpdate := helm.RepoUpdate(&config.Helm, &config.Chart, &config.Release, config.Chart.RepoName())
+					repoUpdate := helm.RepoUpdate(&config.Helm, config.Chart.RepoName())
 					klog.Info("Updating chart repo...")
 					err = gosh.
 						Command(repoUpdate...).
@@ -61,7 +57,7 @@ var createClusterCmd = &cobra.Command{
 			}
 
 			klog.Info("Deploying chart...")
-			helmUpgrade := helm.Upgrade(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
+			helmUpgrade := helm.UpgradeCluster(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
 			err = gosh.
 				Command(helmUpgrade...).
 				WithContext(ctx).

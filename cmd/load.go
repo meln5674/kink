@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -48,7 +47,7 @@ func init() {
 	loadCmd.PersistentFlags().IntVar(&parallelLoads, "parallel-loads", 1, "How many image/artifact loads to run in parallel")
 	loadCmd.PersistentFlags().BoolVar(&onlyLoadToWorkers, "only-load-workers", true, "If true, only load images to worker nodes, if false, also load to controlplane nodes")
 	loadCmd.PersistentFlags().StringArrayVar(&importImageFlags.Command, "ctr-command", []string{}, "Command to run within node pods to load images. Default is based on which distribution is used")
-	loadCmd.PersistentFlags().StringVar(&importImageFlags.Namespace, "ctr-namespace", "", "Contaiinerd namespace to to load images to. Default is based on which distribution is used")
+	loadCmd.PersistentFlags().StringVar(&importImageFlags.Namespace, "ctr-namespace", "", "Containerd namespace to to load images to. Default is based on which distribution is used")
 	loadCmd.PersistentFlags().StringVar(&importImageFlags.Address, "ctr-address", "", "Containerd socket address to to load images to. Default is based on which distribution is used")
 
 	// Cobra supports local flags which will only run when this command
@@ -72,7 +71,7 @@ func getPods(ctx context.Context) (*corev1.PodList, error) {
 	if onlyLoadToWorkers {
 		labels["app.kubernetes.io/component"] = "worker"
 	}
-	getPods := kubectl.GetPods(&config.Kubectl, &config.Kubernetes, config.Release.Namespace, labels)
+	getPods := kubectl.GetPods(&config.Kubectl, &config.Kubernetes, labels)
 	err := gosh.
 		Command(getPods...).
 		WithContext(ctx).

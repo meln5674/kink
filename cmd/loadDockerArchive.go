@@ -1,11 +1,11 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"context"
+
 	"k8s.io/klog/v2"
 
 	"github.com/spf13/cobra"
@@ -47,11 +47,7 @@ func loadArchives(archives ...string) {
 	err := func() error {
 
 		ctx := context.TODO()
-
-		err := loadConfig()
-		if err != nil {
-			return err
-		}
+		var err error
 		err = getReleaseValues(ctx)
 		if err != nil {
 			return err
@@ -70,7 +66,7 @@ func loadArchives(archives ...string) {
 			for _, pod := range pods.Items {
 				kubectlExec := kubectl.Exec(
 					&config.Kubectl, &config.Kubernetes,
-					config.Release.Namespace, pod.Name,
+					pod.Name,
 					true, false,
 					containerd.ImportImage(&importImageFlags, "-")...,
 				)

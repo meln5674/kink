@@ -1,12 +1,12 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"context"
 	"fmt"
+
 	"k8s.io/klog/v2"
 
 	"github.com/meln5674/gosh"
@@ -25,13 +25,8 @@ var getClusterCmd = &cobra.Command{
 			ctx := context.TODO()
 
 			var err error
-			err = loadConfig()
-			if err != nil {
-				return err
-			}
 			releases := make([]map[string]interface{}, 0)
-
-			helmList := helm.List(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
+			helmList := helm.List(&config.Helm, &config.Kubernetes)
 			err = gosh.
 				Command(helmList...).
 				WithContext(ctx).
@@ -49,11 +44,7 @@ var getClusterCmd = &cobra.Command{
 				if !isCluster {
 					continue
 				}
-				if config.Release.Namespace != "" {
-					fmt.Printf("%s %s\n", release["namespace"], clusterName)
-				} else {
-					fmt.Println(clusterName)
-				}
+				fmt.Println(clusterName)
 			}
 
 			return nil

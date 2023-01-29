@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/klog/v2"
+
 	"github.com/meln5674/kink/pkg/config/util"
+	"github.com/meln5674/kink/pkg/flags"
 	"github.com/meln5674/kink/pkg/kubectl"
 )
 
@@ -12,6 +15,47 @@ const (
 	ClusterLabel  = "kind.meln5674.github.com/cluster"
 	ReleasePrefix = "kink-"
 )
+
+var (
+	kubeFlagTranslation = map[string]string{
+		"server":                "kube-apiserver",
+		"as-group":              "kube-as-group",
+		"as":                    "kube-as-user",
+		"certificate-authority": "kube-ca-file",
+		"context":               "kube-context",
+		"token":                 "kube-token",
+	}
+
+	kubeFlagDrop = []string{
+		"request-timeout",
+		"--log-file",
+		"--log-file-max-size",
+		"--logtostderr",
+		"--match-server-version",
+	}
+)
+
+func KubeHelmFlags(ku *kubectl.KubeFlags) map[string]string {
+	flags := ku.Flags()
+	// fmt.Println(flags)
+	for _, key := range kubeFlagDrop {
+		_, ok := flags[key]
+		if ok {
+			klog.Warningf("Ignoring unsupported helm flag from kubectl: %s", key)
+			delete(flags, key)
+		}
+	}
+	// fmt.Println(flags)
+	for kubeFlag, helmFlag := range kubeFlagTranslation {
+		value, ok := flags[kubeFlag]
+		if ok {
+			flags[helmFlag] = value
+			delete(flags, kubeFlag)
+		}
+	}
+	// fmt.Println(flags)
+	return flags
+}
 
 func IsKinkRelease(name string) bool {
 	return strings.HasPrefix(name, ReleasePrefix)
@@ -30,7 +74,7 @@ type HelmFlags struct {
 }
 
 func (h *HelmFlags) Override(h2 *HelmFlags) {
-	util.OverrideStringSlice(&h.Command, &h2.Command)
+	util.Override(&h.Command, &h2.Command)
 }
 
 type ChartFlags struct {
@@ -40,13 +84,13 @@ type ChartFlags struct {
 }
 
 func (c *ChartFlags) Override(c2 *ChartFlags) {
-	util.OverrideString(&c.RepositoryURL, &c2.RepositoryURL)
-	util.OverrideString(&c.ChartName, &c2.ChartName)
-	util.OverrideString(&c.Version, &c2.Version)
+	util.Override(&c.RepositoryURL, &c2.RepositoryURL)
+	util.Override(&c.ChartName, &c2.ChartName)
+	util.Override(&c.Version, &c2.Version)
 }
 
 func (c *ChartFlags) IsLocalChart() bool {
-	return strings.HasPrefix(c.ChartName, "./") || strings.HasPrefix(c.ChartName, "/")
+	return strings.HasPrefix(c.ChartName, "./") || strings.HasPrefix(c.ChartName, "../") || strings.HasPrefix(c.ChartName, "/")
 }
 
 func (c *ChartFlags) RepoName() string {
@@ -64,8 +108,15 @@ func (c *ChartFlags) FullChartName() string {
 	}
 }
 
-type ReleaseFlags struct {
-	Namespace    string            `json:"namespace"`
+func (c *ChartFlags) UpgradeFlags() []string {
+	cmd := make([]string, 0)
+	if c.Version != "" {
+		cmd = append(cmd, "--version", c.Version)
+	}
+	return cmd
+}
+
+type ClusterReleaseFlags struct {
 	ClusterName  string            `json:"clusterName"`
 	Values       []string          `json:"values"`
 	Set          map[string]string `json:"set"`
@@ -73,25 +124,56 @@ type ReleaseFlags struct {
 	UpgradeFlags []string          `json:"upgradeFlags"`
 }
 
-func (r *ReleaseFlags) Override(r2 *ReleaseFlags) {
-	util.OverrideString(&r.Namespace, &r2.Namespace)
-	util.OverrideString(&r.ClusterName, &r2.ClusterName)
-	util.OverrideStringSlice(&r.Values, &r2.Values)
-	util.OverrideStringToString(&r.Set, &r2.Set)
-	util.OverrideStringToString(&r.SetString, &r2.SetString)
+func (f *ClusterReleaseFlags) Raw() ReleaseFlags {
+	return ReleaseFlags{
+		Name:         fmt.Sprintf("kink-%s", f.ClusterName),
+		Values:       f.Values,
+		Set:          f.Set,
+		SetString:    f.SetString,
+		UpgradeFlags: f.UpgradeFlags,
+	}
 }
 
-func (r *ReleaseFlags) ReleaseName() string {
-	return fmt.Sprintf("kink-%s", r.ClusterName)
+type ReleaseFlags struct {
+	Name         string            `json:"name"`
+	Values       []string          `json:"values"`
+	Set          map[string]string `json:"set"`
+	SetString    map[string]string `json:"setString"`
+	UpgradeFlags []string          `json:"upgradeFlags"`
 }
 
-func (r *ReleaseFlags) ExtraLabels() map[string]string {
+func (r *ReleaseFlags) ValuesFlags() []string {
+	flags := make([]string, 0)
+	for _, values := range r.Values {
+		flags = append(flags, "--values", values)
+	}
+	for k, v := range r.Set {
+		flags = append(flags, "--set", fmt.Sprintf("%s=%s", k, v))
+	}
+	for k, v := range r.SetString {
+		flags = append(flags, "--set-string", fmt.Sprintf("%s=%s", k, v))
+	}
+	return flags
+}
+
+func (r *ClusterReleaseFlags) Override(r2 *ClusterReleaseFlags) {
+	util.Override(&r.ClusterName, &r2.ClusterName)
+	util.Override(&r.Values, &r2.Values)
+	//fmt.Printf("%#v\n", r.Set)
+	//fmt.Printf("%#v\n", r2.Set)
+	util.Override(&r.Set, &r2.Set)
+	//fmt.Printf("%#v\n", r.Set)
+	util.Override(&r.SetString, &r2.SetString)
+	util.Override(&r.UpgradeFlags, &r2.UpgradeFlags)
+}
+
+func (r *ClusterReleaseFlags) ExtraLabels() map[string]string {
 	return map[string]string{
 		ClusterLabel: r.ClusterName,
 	}
 }
 
-func (r *ReleaseFlags) ExtraLabelFlags() []string {
+func (r *ClusterReleaseFlags) ExtraLabelFlags() []string {
 	cmd := []string{}
 	for k, v := range r.ExtraLabels() {
 		for _, component := range []string{"worker", "controlplane"} {
@@ -101,7 +183,7 @@ func (r *ReleaseFlags) ExtraLabelFlags() []string {
 	return cmd
 }
 
-func RepoAdd(h *HelmFlags, c *ChartFlags, r *ReleaseFlags) []string {
+func RepoAdd(h *HelmFlags, c *ChartFlags) []string {
 	cmd := make([]string, len(h.Command))
 	copy(cmd, h.Command)
 	cmd = append(cmd, "repo", "add", c.RepoName(), c.RepositoryURL)
@@ -109,7 +191,7 @@ func RepoAdd(h *HelmFlags, c *ChartFlags, r *ReleaseFlags) []string {
 	return cmd
 }
 
-func RepoUpdate(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, repoNames ...string) []string {
+func RepoUpdate(h *HelmFlags, repoNames ...string) []string {
 	cmd := make([]string, len(h.Command))
 	copy(cmd, h.Command)
 	cmd = append(cmd, "repo", "update")
@@ -121,46 +203,33 @@ func RepoUpdate(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, repoNames ...strin
 func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
 	cmd := make([]string, len(h.Command))
 	copy(cmd, h.Command)
-
-	cmd = append(cmd, "upgrade", "--install", "--wait", r.ReleaseName(), c.FullChartName())
-	if c.Version != "" {
-		cmd = append(cmd, "--version", c.Version)
-	}
-	if r.Namespace != "" {
-		cmd = append(cmd, "--namespace", r.Namespace)
-	}
-	for _, values := range r.Values {
-		cmd = append(cmd, "--values", values)
-	}
-	for k, v := range r.Set {
-		cmd = append(cmd, "--set", fmt.Sprintf("%s=%s", k, v))
-	}
-	for k, v := range r.SetString {
-		cmd = append(cmd, "--set-string", fmt.Sprintf("%s=%s", k, v))
-	}
-	cmd = append(cmd, r.ExtraLabelFlags()...)
+	cmd = append(cmd, "upgrade", "--install", "--wait", r.Name, c.FullChartName())
+	cmd = append(cmd, c.UpgradeFlags()...)
+	cmd = append(cmd, r.ValuesFlags()...)
 	cmd = append(cmd, r.UpgradeFlags...)
-	cmd = append(cmd, k.Flags()...)
+	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
 	return cmd
+}
+
+func UpgradeCluster(h *HelmFlags, c *ChartFlags, r *ClusterReleaseFlags, k *kubectl.KubeFlags) []string {
+	raw := r.Raw()
+	return append(Upgrade(h, c, &raw, k), r.ExtraLabelFlags()...)
 }
 
 func Delete(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
 	cmd := make([]string, len(h.Command))
 	copy(cmd, h.Command)
-	cmd = append(cmd, "delete", r.ReleaseName())
-	if r.Namespace != "" {
-		cmd = append(cmd, "--namespace", r.Namespace)
-	}
-	cmd = append(cmd, k.Flags()...)
+	cmd = append(cmd, "delete", r.Name)
+	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
 	return cmd
 }
 
-func List(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
+func List(h *HelmFlags, k *kubectl.KubeFlags) []string {
 	cmd := make([]string, len(h.Command))
 	copy(cmd, h.Command)
 
 	cmd = append(cmd, "list", "--output", "json")
-	cmd = append(cmd, k.Flags()...)
+	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
 
 	return cmd
 }
@@ -169,11 +238,11 @@ func GetValues(h *HelmFlags, r *ReleaseFlags, k *kubectl.KubeFlags, all bool) []
 	cmd := make([]string, len(h.Command))
 	copy(cmd, h.Command)
 
-	cmd = append(cmd, "get", "values", r.ReleaseName(), "--output", "json")
+	cmd = append(cmd, "get", "values", r.Name, "--output", "json")
 	if all {
 		cmd = append(cmd, "--all")
 	}
-	cmd = append(cmd, k.Flags()...)
+	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
 
 	return cmd
 }

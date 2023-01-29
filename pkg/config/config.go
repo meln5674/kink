@@ -31,7 +31,7 @@ type Config struct {
 	// Chart configures the Helm Chart used to deploy the cluster
 	Chart helm.ChartFlags `json:"chart"`
 	// Release configures the Helm Release of the Chart that is used to deploy the cluster
-	Release helm.ReleaseFlags `json:"release"`
+	Release helm.ClusterReleaseFlags `json:"release"`
 }
 
 // Overrides sets any non-zero fields from another config in this one

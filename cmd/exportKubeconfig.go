@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -32,10 +31,6 @@ var exportKubeconfigCmd = &cobra.Command{
 			ctx := context.TODO()
 
 			var err error
-			err = loadConfig()
-			if err != nil {
-				return err
-			}
 			err = getReleaseValues(ctx)
 			if err != nil {
 				return err
@@ -80,7 +75,7 @@ func buildCompleteKubeconfig(path string) error {
 	}
 	inClusterCluster := defaultCluster.DeepCopy()
 	// TODO: Resolve the namespace from the outer kubeconfig
-	// inClusterHostname := fmt.Sprintf("kink-%s-controlplane.%s.svc.cluster.local", config.Release.ClusterName, config.Release.Namespace)
+	// inClusterHostname := fmt.Sprintf("kink-%s-controlplane.%s.svc.cluster.local", config.Release.ClusterName)
 	inClusterHostname := fmt.Sprintf("kink-%s-controlplane", config.Release.ClusterName)
 	inClusterURL := fmt.Sprintf("https://%s:%v", inClusterHostname, releaseValues["controlplane"].(map[string]interface{})["service"].(map[string]interface{})["api"].(map[string]interface{})["port"])
 	inClusterCluster.Server = inClusterURL

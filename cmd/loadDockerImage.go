@@ -1,6 +1,5 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
@@ -30,10 +29,7 @@ var dockerImageCmd = &cobra.Command{
 		}
 		err := func() error {
 			ctx := context.TODO()
-			err := loadConfig()
-			if err != nil {
-				return err
-			}
+			var err error
 			err = getReleaseValues(ctx)
 			if err != nil {
 				return err
@@ -47,7 +43,7 @@ var dockerImageCmd = &cobra.Command{
 			for _, pod := range pods.Items {
 				kubectlExec := kubectl.Exec(
 					&config.Kubectl, &config.Kubernetes,
-					config.Release.Namespace, pod.Name,
+					pod.Name,
 					true, false,
 					containerd.ImportImage(&importImageFlags, "-")...,
 				)

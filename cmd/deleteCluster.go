@@ -1,11 +1,11 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
 	"context"
+
 	"k8s.io/klog/v2"
 
 	"github.com/meln5674/gosh"
@@ -23,14 +23,10 @@ var deleteClusterCmd = &cobra.Command{
 
 			ctx := context.TODO()
 			var err error
-			err = loadConfig()
-			if err != nil {
-				return err
-			}
 			klog.Info("Deleting release...")
 			// TODO: Add flag to also delete PVCs
-
-			helmDelete := helm.Delete(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)
+			raw := config.Release.Raw()
+			helmDelete := helm.Delete(&config.Helm, &config.Chart, &raw, &config.Kubernetes)
 			err = gosh.
 				Command(helmDelete...).
 				WithContext(ctx).
