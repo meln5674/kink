@@ -14,7 +14,7 @@ COPY main.go go.mod go.sum /src/kink/
 COPY cmd /src/kink/cmd
 COPY pkg /src/kink/pkg
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o bin/kink main.go
+RUN make bin/kink
 
 FROM ${BASE_IMAGE} AS download
 

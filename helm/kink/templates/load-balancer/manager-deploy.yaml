@@ -49,6 +49,9 @@ spec:
           args:
           - --release-config-mount=/etc/kink/release 
           - --namespace={{ .Release.Namespace }}
+          {{- if gt (int .Values.loadBalancer.manager.replicaCount) 1 }}
+          - --leader-election=true
+          {{- end }}
           - --leader-election-id=$(POD_NAME)
           - --guest-kubeconfig=/etc/kink/kubeconfig
           resources:

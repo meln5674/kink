@@ -29,6 +29,7 @@ import (
 
 var (
 	guestKubeConfig             kubectl.KubeFlags
+	lbSvcLeaderElectionEnabled  bool
 	lbSvcLeaderElectionIdentity string
 	lbSvcLeaderElectionLease    time.Duration
 	lbSvcLeaderElectionRenew    time.Duration
@@ -103,42 +104,44 @@ type services will also have their ingress IPs set to this service IP.
 				NodePorts: make(map[int32]corev1.ServicePort),
 			}
 
-			leaderChan := make(chan struct{})
-			leaderLock, err := resourcelock.NewFromKubeconfig(
-				resourcelock.LeasesResourceLock,
-				releaseNamespace,
-				releaseConfig.LBManagerFullname,
-				resourcelock.ResourceLockConfig{Identity: lbSvcLeaderElectionIdentity},
-				hostConfig,
-				lbSvcLeaderElectionRenew,
-			)
-			if err != nil {
-				return err
-			}
-			elector, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
-				Lock:          leaderLock,
-				Name:          handler.Target.Name,
-				LeaseDuration: lbSvcLeaderElectionLease,
-				RenewDeadline: lbSvcLeaderElectionRenew,
-				RetryPeriod:   lbSvcLeaderElectionRetry,
-				Callbacks: leaderelection.LeaderCallbacks{
-					OnStartedLeading: func(context.Context) {
-						klog.Info("Became Leader")
-						leaderChan <- struct{}{}
+			if lbSvcLeaderElectionEnabled {
+				leaderChan := make(chan struct{})
+				leaderLock, err := resourcelock.NewFromKubeconfig(
+					resourcelock.LeasesResourceLock,
+					releaseNamespace,
+					releaseConfig.LBManagerFullname,
+					resourcelock.ResourceLockConfig{Identity: lbSvcLeaderElectionIdentity},
+					hostConfig,
+					lbSvcLeaderElectionRenew,
+				)
+				if err != nil {
+					return err
+				}
+				elector, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
+					Lock:          leaderLock,
+					Name:          handler.Target.Name,
+					LeaseDuration: lbSvcLeaderElectionLease,
+					RenewDeadline: lbSvcLeaderElectionRenew,
+					RetryPeriod:   lbSvcLeaderElectionRetry,
+					Callbacks: leaderelection.LeaderCallbacks{
+						OnStartedLeading: func(context.Context) {
+							klog.Info("Became Leader")
+							leaderChan <- struct{}{}
+						},
+						OnStoppedLeading: func() {
+							klog.Info("No longer the leader")
+							stop()
+						},
 					},
-					OnStoppedLeading: func() {
-						klog.Info("No longer the leader")
-						stop()
-					},
-				},
-				ReleaseOnCancel: true,
-			})
-			if err != nil {
-				return err
-			}
-			go elector.Run(ctx)
+					ReleaseOnCancel: true,
+				})
+				if err != nil {
+					return err
+				}
+				go elector.Run(ctx)
 
-			_ = <-leaderChan
+				_ = <-leaderChan
+			}
 
 			err = handler.InitNodePorts()
 			if err != nil {
@@ -172,6 +175,7 @@ type services will also have their ingress IPs set to this service IP.
 func init() {
 	rootCmd.AddCommand(lbManagerCmd)
 	lbManagerCmd.PersistentFlags().StringVar(&guestKubeConfig.Kubeconfig, "guest-kubeconfig", "", "Path to the kubeconfig file to use for accessing the guest cluster")
+	lbManagerCmd.PersistentFlags().BoolVar(&lbSvcLeaderElectionEnabled, "leader-election", false, "Enable leader election. Required if more than one replica is running")
 	lbManagerCmd.PersistentFlags().StringVar(&lbSvcLeaderElectionIdentity, "leader-election-id", "", "Identity for leader election")
 	lbManagerCmd.PersistentFlags().DurationVar(&lbSvcLeaderElectionLease, "leader-election-lease", 15*time.Second, "Lease duration for leader election")
 	lbManagerCmd.PersistentFlags().DurationVar(&lbSvcLeaderElectionRenew, "leader-election-renew", 10*time.Second, "Renewal deadline for leader election")

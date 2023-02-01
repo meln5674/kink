@@ -1,6 +1,6 @@
-all: bin/kink
+all: lint bin/kink test
 
-PHONY: lint
+PHONY: lint test
 
 GO_FILES := $(shell find cmd/ -name '*.go') $(shell find pkg/ -name '*.go') go.mod go.sum
 
@@ -10,3 +10,6 @@ bin/kink: $(GO_FILES)
 lint:
 	go vet ./...
 	helm lint ./helm/kink/
+
+test:
+	ginkgo run -vv ./e2e/
