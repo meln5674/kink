@@ -10,7 +10,7 @@ FROM ${GO_IMAGE} AS go
 
 WORKDIR /src/kink/
 
-COPY main.go go.mod go.sum /src/kink/
+COPY main.go go.mod go.sum Makefile /src/kink/
 COPY cmd /src/kink/cmd
 COPY pkg /src/kink/pkg
 
