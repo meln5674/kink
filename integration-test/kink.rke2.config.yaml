@@ -1,5 +1,8 @@
 apiVersion: kink.meln5674.github.com/v0
-Kind: Config
+kind: Config
+kubernetes:
+  context:
+    namespace: rke2
 release:
   upgradeFlags: ['--timeout=15m']
   set:
@@ -13,3 +16,5 @@ release:
     rke2.enabled: "true"
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
+    controlplane.extraArgs[0]: '--disable=rke2-ingress-nginx'
+    controlplane.extraArgs[1]: '--disable=rke2-metrics-server'

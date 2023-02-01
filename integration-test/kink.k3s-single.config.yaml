@@ -1,5 +1,8 @@
 apiVersion: kink.meln5674.github.com/v0
-Kind: Config
+kind: Config
+kubernetes:
+  context:
+    namespace: k3s-single
 release:
   set:
     image.pullPolicy: Never
@@ -10,4 +13,4 @@ release:
     worker.replicaCount: "0"
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
-    
+    controlplane.extraArgs[0]: '--disable=traefik'

@@ -2,12 +2,16 @@
 fullname: {{ include "kink.fullname" . }}
 controlplane.fullname: {{ include "kink.controlplane.fullname" . }}
 controlplane.port: '{{ .Values.controlplane.service.api.port }}'
+load-balancer.fullname: {{ include "kink.load-balancer.fullname" . }}
+lb-manager.fullname: {{ include "kink.lb-manager.fullname" . }}
 labels: '{{ include "kink.labels" . | fromYaml | toJson }}'
 selectorLabels: '{{ include "kink.selectorLabels" . | fromYaml | toJson }}'
 controlplane.labels: '{{ include "kink.controlplane.labels" . | fromYaml | toJson }}'
 controlplane.selectorLabels: '{{ include "kink.controlplane.selectorLabels" . | fromYaml | toJson }}'
 worker.labels: '{{ include "kink.worker.labels" . | fromYaml | toJson }}'
 worker.selectorLabels: '{{ include "kink.worker.selectorLabels" . | fromYaml | toJson }}'
+load-balancer.labels: '{{ include "kink.load-balancer.labels" . | fromYaml | toJson }}'
+load-balancer.annotations: '{{ .Values.loadBalancer.service.annotations | toJson }}'
 rke2.enabled: '{{ .Values.rke2.enabled }}'
 {{- end -}}
 

@@ -169,12 +169,16 @@ type ReleaseConfig struct {
 	Fullname                   string    `json:"fullname"`
 	ControlplaneFullname       string    `json:"controlplane.fullname"`
 	ControlplanePort           Int       `json:"controlplane.port"`
+	LoadBalancerFullname       string    `json:"load-balancer.fullname"`
+	LBManagerFullname          string    `json:"lb-manager.fullname"`
 	Labels                     StringMap `json:"labels"`
 	SelectorLabels             StringMap `json:"selectorLabels"`
 	ControlplaneLabels         StringMap `json:"controlplane.labels"`
 	ControlplaneSelectorLabels StringMap `json:"controlplane.selectorLabels"`
 	WorkerLabels               StringMap `json:"worker.labels"`
 	WorkerSelectorLabels       StringMap `json:"worker.selectorLabels"`
+	LoadBalancerLabels         StringMap `json:"load-balancer.labels"`
+	LoadBalancerAnnotations    StringMap `json:"load-balancer.annotations"`
 	RKE2Enabled                Bool      `json:"rke2.enabled"`
 }
 

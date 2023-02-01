@@ -1,0 +1,94 @@
+{{- if .Values.loadBalancer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kink.lb-manager.fullname" . }}
+  labels:
+    {{- include "kink.load-balancer.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.loadBalancer.manager.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kink.lb-manager.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.loadBalancer.manager.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kink.lb-manager.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kink.lb-manager.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.loadBalancer.manager.podSecurityContext | nindent 8 }}
+      containers:
+        - name: init
+          securityContext:
+            {{- toYaml .Values.loadBalancer.manager.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          {{- with .Values.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.loadBalancer.manager.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          command:
+          - kink
+          - lb-manager
+          args:
+          - --release-config-mount=/etc/kink/release 
+          - --namespace={{ .Release.Namespace }}
+          - --leader-election-id=$(POD_NAME)
+          - --guest-kubeconfig=/etc/kink/kubeconfig
+          resources:
+            {{- toYaml .Values.loadBalancer.manager.resources | nindent 12 }}
+          volumeMounts:
+          - name: release
+            mountPath: /etc/kink/release
+          - name: kubeconfig
+            mountPath: /etc/kink/kubeconfig
+            subPath: config
+          {{- with .Values.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.loadBalancer.manager.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+
+      {{- with .Values.loadBalancer.manager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.loadBalancer.manager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.loadBalancer.manager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: release
+        configMap:
+          name: {{ include "kink.fullname" . }} 
+      - name: kubeconfig
+        secret:
+          secretName: {{ include "kink.kubeconfig.fullname" . }}
+      {{- with .Values.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
+      {{- end }}
+      {{- with .Values.worker.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
+      {{- end }}
+{{- end }}            

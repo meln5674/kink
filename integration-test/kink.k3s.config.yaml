@@ -1,5 +1,8 @@
 apiVersion: kink.meln5674.github.com/v0
-Kind: Config
+kind: Config
+kubernetes:
+  context:
+    namespace: k3s
 release:
   set:
     image.pullPolicy: Never
@@ -31,6 +34,11 @@ release:
     workers.extraVolumeMounts[0].mountPath: /tmp/baz
     extraArgs[0]: -v
     controlplane.extraArgs[0]: '--debug'
+    controlplane.extraArgs[1]: '--disable=traefik'
+    controlplane.extraArgs[2]: '--disable=servicelb'
+    controlplane.extraArgs[3]: '--service-node-port-range=30000-30001'
     workers.extraArgs[0]: '--node-label=foo=bar'
+    loadBalancer.enabled: 'true'
+    kubeconfig.enabled: 'true'
   setString:
     extraArgs[1]: '1'

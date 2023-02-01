@@ -22,6 +22,7 @@ fi
 
 if ! ("${KINK_COMMAND[@]}" get cluster | tee /dev/stderr | grep -w "${KINK_CLUSTER_NAME}") || [ -z "${KINK_IT_NO_KINK_CREATE}" ]; then
     "${KINK_COMMAND[@]}" create cluster \
+        --chart ./helm/kink \
         --set image.repository="${IMAGE_REPO}" \
         --set image.tag="${IMAGE_TAG}" \
         --out-kubeconfig="${KINK_KUBECONFIG}"

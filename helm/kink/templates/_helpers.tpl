@@ -31,6 +31,15 @@ If release name contains chart name it will be used as a full name.
 {{- include "kink.fullname" . }}-worker
 {{- end }}
 
+{{- define "kink.lb-manager.fullname" -}}
+{{- include "kink.fullname" . }}-lb-manager
+{{- end }}
+
+{{- define "kink.load-balancer.fullname" -}}
+{{- include "kink.fullname" . }}-lb
+{{- end }}
+
+
 {{- define "kink.kubeconfig.fullname" -}}
 {{- include "kink.fullname" . }}-kubeconfig
 {{- end }}
@@ -71,6 +80,22 @@ app.kubernetes.io/component: worker
 {{- end }}
 {{- end -}}
 
+{{- define "kink.lb-manager.labels" -}}
+{{ include "kink.labels" . }}
+app.kubernetes.io/component: lb-manager
+{{- with .Values.loadBalancer.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
+{{- end -}}
+
+{{- define "kink.load-balancer.labels" -}}
+{{ include "kink.labels" . }}
+app.kubernetes.io/component: load-balancer
+{{- with .Values.loadBalancer.service.labels }}
+{{ . | toYaml }}
+{{- end }}
+{{- end -}}
+
 {{- define "kink.kubeconfig.labels" -}}
 {{ include "kink.labels" . }}
 app.kubernetes.io/component: kubeconfig
@@ -105,6 +130,15 @@ app.kubernetes.io/component: worker
 {{- end }}
 {{- end -}}
 
+{{- define "kink.lb-manager.selectorLabels" -}}
+{{ include "kink.selectorLabels" . }}
+app.kubernetes.io/component: lb-manager
+{{- with .Values.loadBalancer.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
+{{- end -}}
+
+
 {{/*
 Create the name of the service account to use
 */}}
@@ -122,6 +156,14 @@ Create the name of the service account to use
 {{- default (include "kink.worker.fullname" .) .Values.worker.serviceAccount.name }}
 {{- else }}
 {{- default "default" .Values.worker.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+{{- define "kink.lb-manager.serviceAccountName" -}}
+{{- if .Values.loadBalancer.manager.serviceAccount.create }}
+{{- default (include "kink.lb-manager.fullname" .) .Values.loadBalancer.manager.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.loadBalancer.manager.serviceAccount.name }}
 {{- end }}
 {{- end }}
 

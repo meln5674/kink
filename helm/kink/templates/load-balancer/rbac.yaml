@@ -1,0 +1,39 @@
+{{- if and .Values.loadBalancer.enabled .Values.loadBalancer.manager.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kink.lb-manager.fullname" . }}
+  labels:
+    {{ include "kink.lb-manager.labels" . | nindent 4 }}
+rules:
+- apiGroups: ['']
+  resources: ['services']
+  verbs: [get,watch,update,patch,delete]
+  resourceNames: ['{{ include "kink.load-balancer.fullname" . }}']
+- apiGroups: ['']
+  resources: ['services']
+  verbs: [create]
+- apiGroups: [coordination.k8s.io]
+  resources: ['leases']
+  verbs: ['*']
+  resourceNames: ['{{ include "kink.lb-manager.fullname" . }}']
+- apiGroups: [coordination.k8s.io]
+  resources: ['leases']
+  verbs: ['create']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kink.lb-manager.fullname" . }}
+  labels:
+    {{ include "kink.lb-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kink.lb-manager.fullname" . }}
+subjects:
+- apiGroup: ""
+  kind: ServiceAccount
+  name: {{ include "kink.lb-manager.serviceAccountName" . }}
+  namespace: {{ .Release.Namespce }}
+{{- end }}
