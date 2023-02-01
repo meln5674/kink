@@ -1,20 +1,8 @@
 ARG BASE_IMAGE=docker.io/library/debian:bullseye-slim
 
-ARG GO_IMAGE=docker.io/library/golang:1.18
-
 ARG DOCKER_IMAGE=docker.io/library/docker:20
 
 FROM ${DOCKER_IMAGE} AS docker
-
-FROM ${GO_IMAGE} AS go
-
-WORKDIR /src/kink/
-
-COPY main.go go.mod go.sum /src/kink/
-COPY cmd /src/kink/cmd
-COPY pkg /src/kink/pkg
-
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o bin/kink main.go
 
 FROM ${BASE_IMAGE} AS download
 
@@ -82,7 +70,7 @@ COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/k3s/sys
 RUN mkdir -p /etc/kink/extra-manifests/k3s/user /etc/kink/extra-manifests/rke2/user
 
 
-COPY --from=go /src/kink/bin/kink /usr/local/bin/kink
+COPY bin/kink /usr/local/bin/kink
 
 VOLUME /var/lib/rancher/
 VOLUME /var/lib/kubelet

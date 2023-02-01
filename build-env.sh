@@ -1,5 +1,7 @@
 #!/bin/bash -xe
 
+SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+
 # Assume the user wants an interactive shell if no args are passed, otherwise, run the provided command
 if [ "$#" -eq 0 ]; then
     COMMAND=( bash )
@@ -17,7 +19,7 @@ IMAGE="${IMAGE_REPO}:${IMAGE_TAG}"
 
 
 if [ -z "${NO_BUILD_IMAGE}" ]; then
-    docker build -f build-env.Dockerfile -t "${IMAGE}" .
+    docker build -f "${SCRIPTPATH}/build-env.Dockerfile" -t "${IMAGE}" "${SCRIPTPATH}"
 fi
 
 DOCKER_RUN_ARGS=(
