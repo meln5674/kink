@@ -1,0 +1,23 @@
+{{- define "kink.config" -}}
+fullname: {{ include "kink.fullname" . }}
+controlplane.fullname: {{ include "kink.controlplane.fullname" . }}
+controlplane.port: '{{ .Values.controlplane.service.api.port }}'
+labels: '{{ include "kink.labels" . | fromYaml | toJson }}'
+selectorLabels: '{{ include "kink.selectorLabels" . | fromYaml | toJson }}'
+controlplane.labels: '{{ include "kink.controlplane.labels" . | fromYaml | toJson }}'
+controlplane.selectorLabels: '{{ include "kink.controlplane.selectorLabels" . | fromYaml | toJson }}'
+worker.labels: '{{ include "kink.worker.labels" . | fromYaml | toJson }}'
+worker.selectorLabels: '{{ include "kink.worker.selectorLabels" . | fromYaml | toJson }}'
+rke2.enabled: '{{ .Values.rke2.enabled }}'
+{{- end -}}
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kink.fullname" . }}
+  labels:
+    {{ include "kink.labels" . | nindent 4 }}
+data:
+  {{- include "kink.config" . | nindent 2 }}
+  config.json: '{{- include "kink.config" . | fromYaml | toJson }}'

@@ -31,6 +31,10 @@ If release name contains chart name it will be used as a full name.
 {{- include "kink.fullname" . }}-worker
 {{- end }}
 
+{{- define "kink.kubeconfig.fullname" -}}
+{{- include "kink.fullname" . }}-kubeconfig
+{{- end }}
+
 
 {{/*
 Create chart name and version as used by the chart label.
@@ -67,6 +71,16 @@ app.kubernetes.io/component: worker
 {{- end }}
 {{- end -}}
 
+{{- define "kink.kubeconfig.labels" -}}
+{{ include "kink.labels" . }}
+app.kubernetes.io/component: kubeconfig
+{{- with .Values.kubeconfig.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
+{{- end -}}
+
+
+
 {{/*
 Selector labels
 */}}
@@ -91,7 +105,6 @@ app.kubernetes.io/component: worker
 {{- end }}
 {{- end -}}
 
-
 {{/*
 Create the name of the service account to use
 */}}
@@ -111,6 +124,16 @@ Create the name of the service account to use
 {{- default "default" .Values.worker.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "kink.kubeconfig.serviceAccountName" -}}
+{{- if .Values.kubeconfig.job.serviceAccount.create }}
+{{- default (include "kink.kubeconfig.fullname" .) .Values.kubeconfig.job.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.kubeconfig.job.serviceAccount.name }}
+{{- end }}
+{{- end }}
+
+
 
 {{- define "kink.controlplane.url" -}}
 {{- if .Values.rke2.enabled -}}

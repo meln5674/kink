@@ -4,16 +4,17 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
-	"context"
+	"errors"
 	goflag "flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/yaml"
 
 	"github.com/meln5674/gosh"
 
@@ -22,10 +23,25 @@ import (
 )
 
 var (
-	config          cfg.Config
+	// configPath is the path to the config file provided as a flag
+	configPath string
+	// rawConfig is the configuration as parsed from configPath
+	rawConfig cfg.RawConfig
+	// configOverrides are the overrides provided via the command line
 	configOverrides cfg.Config
-	configPath      string
-	releaseValues   map[string]interface{}
+	// config is the fully realized config ready to be passed to module functions
+	config cfg.Config
+
+	// releaseConfigMount is the location of the mounted configmap as provided on the command line
+	releaseConfigMount string
+
+	// releaseNamespace is the namespace of the helm release for the guest cluster
+	releaseNamespace string
+
+	// releaseConfig are the details of the last release of the guest cluster needed by local commands
+	releaseConfig cfg.ReleaseConfig
+
+// TODO: Get this by parsing config
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -54,6 +70,7 @@ func init() {
 	rootCmd.PersistentFlags().AddGoFlagSet(klogFlags)
 
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to KinK config file to use instead of arguments")
+	rootCmd.PersistentFlags().StringVar(&releaseConfigMount, "release-config-mount", "", "Path to where release configmap is mounted. If provided, this will be used instead of fetching from helm")
 
 	rootCmd.PersistentFlags().StringSliceVar(&configOverrides.Helm.Command, "helm-command", []string{"helm"}, "Command to execute for helm")
 	rootCmd.PersistentFlags().StringSliceVar(&configOverrides.Kubectl.Command, "kubectl-command", []string{"kubectl"}, "Command to execute for kubectl")
@@ -72,67 +89,82 @@ func init() {
 }
 
 func loadConfig() error {
-	err := func() error {
-		if configPath == "" {
-			return nil
-		}
-		f, err := os.Open(configPath)
+	var err error
+	if configPath != "" {
+		err = rawConfig.LoadFromFile(configPath)
 		if err != nil {
 			return err
 		}
-		defer f.Close()
-		bytes, err := ioutil.ReadAll(f)
-		if err != nil {
-			return err
-		}
-		err = yaml.Unmarshal(bytes, &config, yaml.DisallowUnknownFields)
-		if err != nil {
-			return err
-		}
-		//klog.Infof("%#v", config)
-		validAPIVersion := false
-		for _, version := range cfg.APIVersions {
-			if config.APIVersion == version {
-				validAPIVersion = true
-				break
-			}
-		}
-		if !validAPIVersion {
-			return fmt.Errorf("Unsupported APIVersion %s, supported: %v", config.APIVersion, cfg.APIVersions)
-		}
-		if config.Kind != cfg.Kind {
-			return fmt.Errorf("Unsupported Kind %s, must be %s", config.Kind, cfg.Kind)
-		}
-		return nil
-	}()
+		config = rawConfig.Format()
+	}
+
+	klog.V(1).Infof("%#v", configOverrides)
+	config.Override(&configOverrides)
+	klog.V(1).Infof("%#v", config)
+
+	kubeconfig := config.Kubernetes.Kubeconfig
+	if kubeconfig == "" {
+		kubeconfig = os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	}
+	releaseNamespace, _, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{
+			ExplicitPath: kubeconfig,
+		},
+		&config.Kubernetes.ConfigOverrides,
+	).Namespace()
 	if err != nil {
 		return err
 	}
 
-	//klog.Infof("%#v", configOverrides)
-	config.Override(&configOverrides)
-	//klog.Infof("%#v", config)
+	if releaseConfigMount != "" {
+		err = releaseConfig.LoadFromMount(releaseConfigMount)
+		if err != nil {
+			return err
+		}
+	} else {
+		doc := corev1.ConfigMap{}
+		err = gosh.
+			Command(helm.TemplateCluster(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)...).
+			WithStreams(
+				gosh.ForwardErr,
+				gosh.FuncOut(func(r io.Reader) error {
+					decoder := yaml.NewYAMLOrJSONDecoder(r, 1024)
+					for {
+						doc = corev1.ConfigMap{}
+						err := decoder.Decode(&doc)
+						if errors.Is(err, io.EOF) {
+							return fmt.Errorf("BUG: No matching configmap found in chart output")
+						}
+						if err != nil {
+							// TODO: find a way to distinguish I/O errors and syntax errors from "not a configmap" errors
+							klog.Warning(err)
+							continue
+						}
+						klog.V(1).Infof("%s/%s/%s/%s", doc.APIVersion, doc.Kind, doc.Namespace, doc.Name)
+						if doc.APIVersion != "v1" || doc.Kind != "ConfigMap" {
+							continue
+						}
+						if doc.Namespace != releaseNamespace && doc.Namespace != "" {
+							klog.Warning("Found a configmap other than the one we're looking for")
+							continue
+						}
+						ok, err := releaseConfig.LoadFromConfigMap(&doc)
+						if err != nil {
+							return err
+						}
+						if ok {
+							return nil
+						}
+						klog.Warning("Found a configmap other than the one we're looking for")
+					}
+				}),
+			).
+			Run()
+		if err != nil {
+			return err
+		}
+	}
+	klog.V(1).Infof("%#v", releaseConfig)
 
 	return nil
-}
-
-func getReleaseValues(ctx context.Context) error {
-	raw := config.Release.Raw()
-	return gosh.
-		Command(helm.GetValues(&config.Helm, &raw, &config.Kubernetes, true)...).
-		WithContext(ctx).
-		WithStreams(gosh.FuncOut(gosh.SaveJSON(&releaseValues))).
-		Run()
-}
-
-func rke2Enabled() bool {
-	rke2, ok := releaseValues["rke2"].(map[string]interface{})
-	if !ok {
-		return false
-	}
-	enabled, ok := rke2["enabled"].(bool)
-	if !ok {
-		return false
-	}
-	return enabled
 }

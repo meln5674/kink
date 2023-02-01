@@ -57,7 +57,7 @@ func init() {
 
 func parseImportImageFlags() {
 	var defaults *containerd.CtrFlags
-	if rke2Enabled() {
+	if releaseConfig.RKE2Enabled {
 		defaults = &rke2DefaultImportImageFlags
 	} else {
 		defaults = &k3sDefaultImportImageFlags

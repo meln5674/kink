@@ -77,6 +77,16 @@ func (h *HelmFlags) Override(h2 *HelmFlags) {
 	util.Override(&h.Command, &h2.Command)
 }
 
+func (h *HelmFlags) Helm(k *kubectl.KubeFlags, args ...string) []string {
+	cmd := make([]string, 0, len(h.Command)+len(args))
+
+	cmd = append(cmd, h.Command...)
+	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
+	cmd = append(cmd, args...)
+
+	return cmd
+}
+
 type ChartFlags struct {
 	RepositoryURL string `json:"repositoryURL"`
 	ChartName     string `json:"chart"`
@@ -184,31 +194,24 @@ func (r *ClusterReleaseFlags) ExtraLabelFlags() []string {
 }
 
 func RepoAdd(h *HelmFlags, c *ChartFlags) []string {
-	cmd := make([]string, len(h.Command))
-	copy(cmd, h.Command)
-	cmd = append(cmd, "repo", "add", c.RepoName(), c.RepositoryURL)
-
-	return cmd
+	return h.Helm(&kubectl.KubeFlags{}, "repo", "add", c.RepoName(), c.RepositoryURL)
 }
 
 func RepoUpdate(h *HelmFlags, repoNames ...string) []string {
-	cmd := make([]string, len(h.Command))
-	copy(cmd, h.Command)
-	cmd = append(cmd, "repo", "update")
-	cmd = append(cmd, repoNames...)
+	args := make([]string, 0, 2+len(repoNames))
+	args = append(args, "repo", "update")
+	args = append(args, repoNames...)
 
-	return cmd
+	return h.Helm(&kubectl.KubeFlags{}, args...)
 }
 
 func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
-	cmd := make([]string, len(h.Command))
-	copy(cmd, h.Command)
-	cmd = append(cmd, "upgrade", "--install", "--wait", r.Name, c.FullChartName())
-	cmd = append(cmd, c.UpgradeFlags()...)
-	cmd = append(cmd, r.ValuesFlags()...)
-	cmd = append(cmd, r.UpgradeFlags...)
-	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
-	return cmd
+	args := make([]string, 0)
+	args = append(args, "upgrade", "--install", "--wait", r.Name, c.FullChartName())
+	args = append(args, c.UpgradeFlags()...)
+	args = append(args, r.ValuesFlags()...)
+	args = append(args, r.UpgradeFlags...)
+	return h.Helm(k, args...)
 }
 
 func UpgradeCluster(h *HelmFlags, c *ChartFlags, r *ClusterReleaseFlags, k *kubectl.KubeFlags) []string {
@@ -216,33 +219,23 @@ func UpgradeCluster(h *HelmFlags, c *ChartFlags, r *ClusterReleaseFlags, k *kube
 	return append(Upgrade(h, c, &raw, k), r.ExtraLabelFlags()...)
 }
 
+func Template(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
+	args := make([]string, 0)
+	args = append(args, "template", r.Name, c.FullChartName())
+	args = append(args, c.UpgradeFlags()...)
+	args = append(args, r.ValuesFlags()...)
+	return h.Helm(k, args...)
+}
+
+func TemplateCluster(h *HelmFlags, c *ChartFlags, r *ClusterReleaseFlags, k *kubectl.KubeFlags) []string {
+	raw := r.Raw()
+	return append(Template(h, c, &raw, k), r.ExtraLabelFlags()...)
+}
+
 func Delete(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
-	cmd := make([]string, len(h.Command))
-	copy(cmd, h.Command)
-	cmd = append(cmd, "delete", r.Name)
-	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
-	return cmd
+	return h.Helm(k, "delete", r.Name)
 }
 
 func List(h *HelmFlags, k *kubectl.KubeFlags) []string {
-	cmd := make([]string, len(h.Command))
-	copy(cmd, h.Command)
-
-	cmd = append(cmd, "list", "--output", "json")
-	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
-
-	return cmd
-}
-
-func GetValues(h *HelmFlags, r *ReleaseFlags, k *kubectl.KubeFlags, all bool) []string {
-	cmd := make([]string, len(h.Command))
-	copy(cmd, h.Command)
-
-	cmd = append(cmd, "get", "values", r.Name, "--output", "json")
-	if all {
-		cmd = append(cmd, "--all")
-	}
-	cmd = append(cmd, flags.AsFlags(KubeHelmFlags(k))...)
-
-	return cmd
+	return h.Helm(k, "list", "--output", "json")
 }

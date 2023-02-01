@@ -35,11 +35,6 @@ to quickly create a Cobra application.`,
 
 			var err error
 
-			err = getReleaseValues(ctx)
-			if err != nil {
-				return err
-			}
-
 			ctx2, stop, err := portForward(ctx, true)
 			if err != nil {
 				return err

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/klog/v2"
 
 	"github.com/meln5674/kink/pkg/config/util"
@@ -27,6 +28,28 @@ func (k *KubectlFlags) Override(k2 *KubectlFlags) {
 type KubeFlags struct {
 	ConfigOverrides clientcmd.ConfigOverrides
 	Kubeconfig      string
+}
+
+type RawKubeFlags struct {
+	Kubeconfig     string                `json:"kubeconfig,omitempty"`
+	User           clientcmdapi.AuthInfo `json:"user,omitempty"`
+	Cluster        clientcmdapi.Cluster  `json:"cluster,omitempty"`
+	Context        clientcmdapi.Context  `json:"context,omitempty"`
+	CurrentContext string                `json:"current-context,omitempty"`
+	RequestTimeout string                `json:"request-timeout,omitempty"`
+}
+
+func (r *RawKubeFlags) Format() KubeFlags {
+	return KubeFlags{
+		ConfigOverrides: clientcmd.ConfigOverrides{
+			AuthInfo:       r.User,
+			ClusterInfo:    r.Cluster,
+			Context:        r.Context,
+			CurrentContext: r.CurrentContext,
+			Timeout:        r.RequestTimeout,
+		},
+		Kubeconfig: r.Kubeconfig,
+	}
 }
 
 func (k *KubeFlags) Override(k2 *KubeFlags) {
@@ -68,45 +91,49 @@ func addFlag(flags map[string]string, f *clientcmd.FlagInfo, value, zero interfa
 }
 
 func (k *KubeFlags) Flags() map[string]string {
+	return k.CustomFlags(&recommendedFlags, "kubeconfig")
+}
+
+func (k *KubeFlags) CustomFlags(flagInfo *clientcmd.ConfigOverrideFlags, kubeconfigFlag string) map[string]string {
 	flags := make(map[string]string)
 	addFlag(
 		flags,
-		&recommendedFlags.AuthOverrideFlags.ClientCertificate,
+		&flagInfo.AuthOverrideFlags.ClientCertificate,
 		k.ConfigOverrides.AuthInfo.ClientCertificate,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.AuthOverrideFlags.ClientKey,
+		&flagInfo.AuthOverrideFlags.ClientKey,
 		k.ConfigOverrides.AuthInfo.ClientKey,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.AuthOverrideFlags.Token,
+		&flagInfo.AuthOverrideFlags.Token,
 		k.ConfigOverrides.AuthInfo.Token,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.AuthOverrideFlags.Impersonate,
+		&flagInfo.AuthOverrideFlags.Impersonate,
 		k.ConfigOverrides.AuthInfo.Impersonate,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.AuthOverrideFlags.ImpersonateUID,
+		&flagInfo.AuthOverrideFlags.ImpersonateUID,
 		k.ConfigOverrides.AuthInfo.ImpersonateUID,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.AuthOverrideFlags.ImpersonateGroups,
+		&flagInfo.AuthOverrideFlags.ImpersonateGroups,
 		k.ConfigOverrides.AuthInfo.ImpersonateGroups,
 		//[]string(nil),
 		[]string{},
@@ -114,14 +141,14 @@ func (k *KubeFlags) Flags() map[string]string {
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.AuthOverrideFlags.Username,
+		&flagInfo.AuthOverrideFlags.Username,
 		k.ConfigOverrides.AuthInfo.Password,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.ClusterOverrideFlags.APIServer,
+		&flagInfo.ClusterOverrideFlags.APIServer,
 		k.ConfigOverrides.ClusterInfo.Server,
 		"",
 		"",
@@ -130,7 +157,7 @@ func (k *KubeFlags) Flags() map[string]string {
 		TODO: What flag is this? It doesn't appear to be used?
 		addFlag(
 			flags,
-			&recommendedFlags.ClusterOverrideFlags.APIVersion,
+			&flagInfo.ClusterOverrideFlags.APIVersion,
 			k.ConfigOverrides.ClusterInfo.APIVersion,
 			"",
 			"",
@@ -138,35 +165,35 @@ func (k *KubeFlags) Flags() map[string]string {
 	*/
 	addFlag(
 		flags,
-		&recommendedFlags.ClusterOverrideFlags.CertificateAuthority,
+		&flagInfo.ClusterOverrideFlags.CertificateAuthority,
 		k.ConfigOverrides.ClusterInfo.CertificateAuthority,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.ClusterOverrideFlags.InsecureSkipTLSVerify,
+		&flagInfo.ClusterOverrideFlags.InsecureSkipTLSVerify,
 		k.ConfigOverrides.ClusterInfo.InsecureSkipTLSVerify,
 		false,
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.ClusterOverrideFlags.TLSServerName,
+		&flagInfo.ClusterOverrideFlags.TLSServerName,
 		k.ConfigOverrides.ClusterInfo.TLSServerName,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.ClusterOverrideFlags.ProxyURL,
+		&flagInfo.ClusterOverrideFlags.ProxyURL,
 		k.ConfigOverrides.ClusterInfo.ProxyURL,
 		"",
 		"",
 	)
 	addFlag(
 		flags,
-		&recommendedFlags.ContextOverrideFlags.ClusterName,
+		&flagInfo.ContextOverrideFlags.ClusterName,
 		k.ConfigOverrides.Context.Cluster,
 		"",
 		"",
@@ -205,7 +232,7 @@ func (k *KubeFlags) Flags() map[string]string {
 		"",
 	)
 	if k.Kubeconfig != "" {
-		flags["kubeconfig"] = k.Kubeconfig
+		flags[kubeconfigFlag] = k.Kubeconfig
 	}
 	return flags
 }
@@ -251,6 +278,10 @@ func WatchPods(k *KubectlFlags, ku *KubeFlags, labels map[string]string, allName
 		args = append(args, "--all-namespaces")
 	}
 	return Kubectl(k, ku, args...)
+}
+
+func GetConfigmap(k *KubectlFlags, ku *KubeFlags, name string) []string {
+	return Kubectl(k, ku, "get", "configmap", name, "--output", "json")
 }
 
 func ConfigCurrentContext(k *KubectlFlags, ku *KubeFlags) []string {

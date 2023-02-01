@@ -30,10 +30,6 @@ var dockerImageCmd = &cobra.Command{
 		err := func() error {
 			ctx := context.TODO()
 			var err error
-			err = getReleaseValues(ctx)
-			if err != nil {
-				return err
-			}
 			parseImportImageFlags()
 			pods, err := getPods(ctx)
 			if err != nil {

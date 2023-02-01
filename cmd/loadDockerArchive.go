@@ -48,10 +48,6 @@ func loadArchives(archives ...string) {
 
 		ctx := context.TODO()
 		var err error
-		err = getReleaseValues(ctx)
-		if err != nil {
-			return err
-		}
 		parseImportImageFlags()
 
 		if len(archives) == 0 {

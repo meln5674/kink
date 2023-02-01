@@ -5,7 +5,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 
@@ -14,8 +13,6 @@ import (
 	"github.com/meln5674/gosh"
 	"github.com/spf13/cobra"
 	"k8s.io/klog/v2"
-
-	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 var (
@@ -77,32 +74,16 @@ func execWithGateway(toExec *gosh.Cmd) {
 
 		var err error
 
-		err = getReleaseValues(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		kubeconfigPath := k3sKubeconfigPath
-		if rke2Enabled() {
-			kubeconfigPath = rke2KubeconfigPath
-		}
-
 		if exportedKubeconfigPath == "" {
 			kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
-			defer kubeconfig.Close()
-			defer os.Remove(kubeconfig.Name())
 			if err != nil {
 				return nil, err
 			}
-			// TODO: Find a live pod first
-			kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, fmt.Sprintf("kink-%s-controlplane-0", config.Release.ClusterName), kubeconfigPath, kubeconfig.Name())
-			err = gosh.
-				Command(kubectlCp...).
-				WithContext(ctx).
-				WithStreams(gosh.ForwardOutErr).
-				Run()
+			defer kubeconfig.Close()
+			defer os.Remove(kubeconfig.Name())
+			err = fetchKubeconfig(ctx, kubeconfig.Name())
 			if err != nil {
-				return nil, errors.Wrap(err, "Could not extract kubeconfig from controlplane pod, make sure controlplane is healthy")
+				return nil, err
 			}
 			exportedKubeconfigPath = kubeconfig.Name()
 		}

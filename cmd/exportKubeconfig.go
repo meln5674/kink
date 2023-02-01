@@ -9,6 +9,9 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/meln5674/gosh"
+	"github.com/meln5674/kink/pkg/kubectl"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
@@ -26,12 +29,9 @@ var exportKubeconfigCmd = &cobra.Command{
 	Use:   "kubeconfig",
 	Short: "Exports cluster kubeconfig",
 	Run: func(cmd *cobra.Command, args []string) {
-		shCmd.Run(cmd, []string{fmt.Sprintf("cp ${KUBECONFIG} %s", kubeconfigToExportPath)})
 		err := func() error {
-			ctx := context.TODO()
-
 			var err error
-			err = getReleaseValues(ctx)
+			err = fetchKubeconfig(context.TODO(), kubeconfigToExportPath)
 			if err != nil {
 				return err
 			}
@@ -41,10 +41,10 @@ var exportKubeconfigCmd = &cobra.Command{
 			}
 			return nil
 		}()
+
 		if err != nil {
 			klog.Fatal(err)
 		}
-
 	},
 }
 
@@ -74,10 +74,8 @@ func buildCompleteKubeconfig(path string) error {
 		return fmt.Errorf("Extracted kubeconfig did not contain expected cluster")
 	}
 	inClusterCluster := defaultCluster.DeepCopy()
-	// TODO: Resolve the namespace from the outer kubeconfig
-	// inClusterHostname := fmt.Sprintf("kink-%s-controlplane.%s.svc.cluster.local", config.Release.ClusterName)
-	inClusterHostname := fmt.Sprintf("kink-%s-controlplane", config.Release.ClusterName)
-	inClusterURL := fmt.Sprintf("https://%s:%v", inClusterHostname, releaseValues["controlplane"].(map[string]interface{})["service"].(map[string]interface{})["api"].(map[string]interface{})["port"])
+	inClusterHostname := fmt.Sprintf("%s.%s.svc.cluster.local", releaseConfig.ControlplaneFullname, releaseNamespace)
+	inClusterURL := fmt.Sprintf("https://%s:%v", inClusterHostname, releaseConfig.ControlplanePort)
 	inClusterCluster.Server = inClusterURL
 	inClusterCluster.TLSServerName = inClusterHostname
 
@@ -125,6 +123,24 @@ func buildCompleteKubeconfig(path string) error {
 	_, err = f.Write(bytes)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func fetchKubeconfig(ctx context.Context, path string) error {
+	kubeconfigPath := k3sKubeconfigPath
+	if releaseConfig.RKE2Enabled {
+		kubeconfigPath = rke2KubeconfigPath
+	}
+	// TODO: Find a live pod first
+	kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, fmt.Sprintf("%s-0", releaseConfig.ControlplaneFullname), kubeconfigPath, path)
+	err := gosh.
+		Command(kubectlCp...).
+		WithContext(ctx).
+		WithStreams(gosh.ForwardOutErr).
+		Run()
+	if err != nil {
+		return errors.Wrap(err, "Could not extract kubeconfig from controlplane pod, make sure controlplane is healthy")
 	}
 	return nil
 }
