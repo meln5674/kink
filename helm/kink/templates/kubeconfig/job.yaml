@@ -1,0 +1,92 @@
+{{- if .Values.kubeconfig.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "kink.kubeconfig.fullname" . }}-{{ .Release.Revision }}
+  labels:
+    {{- include "kink.kubeconfig.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      {{- with .Values.kubeconfig.job.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kink.kubeconfig.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.kubeconfig.job.podSecurityContext | nindent 8 }}
+      containers:
+        - name: init
+          securityContext:
+            {{- toYaml .Values.kubeconfig.job.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          {{- with .Values.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.kubeconfig.job.extraEnv }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          command: [bash, -xeuc]
+          args:
+          - |-
+            kubectl wait 'pod/{{ include "kink.controlplane.fullname" . }}-0' \
+              --namespace '{{ .Release.Namespace }}' \
+              --for condition=ready \
+              --timeout=-1s
+            kink export kubeconfig \
+              --release-config-mount=/etc/kink/release \
+              --namespace='{{ .Release.Namespace }}' \
+              --out-kubeconfig=/tmp/kink.kubeconfig
+            kubectl --kubeconfig=/tmp/kink.kubeconfig config use-context in-cluster
+            if kubectl get secret '{{ include "kink.kubeconfig.fullname" . }}' --namespace '{{ .Release.Namespace }}' ; then
+              kubectl delete secret '{{ include "kink.kubeconfig.fullname" . }}' --namespace '{{ .Release.Namespace }}'
+            fi
+            kubectl create secret generic '{{ include "kink.kubeconfig.fullname" . }}' --namespace '{{ .Release.Namespace }}' --from-file=config=/tmp/kink.kubeconfig
+          resources:
+            {{- toYaml .Values.kubeconfig.job.resources | nindent 12 }}
+          volumeMounts:
+          - name: release
+            mountPath: /etc/kink/release
+          - name: tmp
+            mountPath: /tmp/
+          {{- with .Values.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.kubeconfig.job.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+
+      {{- with .Values.kubeconfig.job.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kubeconfig.job.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kubeconfig.job.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: release
+        configMap:
+          name: {{ include "kink.fullname" . }} 
+      {{- with .Values.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
+      {{- end }}
+      {{- with .Values.worker.extraVolumes }}
+      {{- . | toYaml | nindent 6 }}
+      {{- end }}
+{{- end }}

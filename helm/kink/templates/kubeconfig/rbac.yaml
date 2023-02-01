@@ -1,0 +1,35 @@
+{{- if and .Values.kubeconfig.enabled .Values.kubeconfig.job.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kink.kubeconfig.fullname" . }}
+  labels:
+    {{ include "kink.kubeconfig.labels" . | nindent 4 }}
+rules:
+- apiGroups: ['']
+  resources: ['secrets']
+  verbs: [get,watch,update,patch,delete]
+  resourceNames: ['{{ include "kink.kubeconfig.fullname" . }}']
+- apiGroups: ['']
+  resources: ['secrets','pods/exec']
+  verbs: [create]
+- apiGroups: ['']
+  resources: ['pods']
+  verbs: [get,list,watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kink.kubeconfig.fullname" . }}
+  labels:
+    {{ include "kink.kubeconfig.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kink.kubeconfig.fullname" . }}
+subjects:
+- apiGroup: ""
+  kind: ServiceAccount
+  name: {{ include "kink.kubeconfig.serviceAccountName" . }}
+  namespace: {{ .Release.Namespce }}
+{{- end }}
