@@ -6,7 +6,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 
 	"github.com/meln5674/gosh"
@@ -60,8 +59,7 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	exportKubeconfigCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
-	exportKubeconfigCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL")
-
+	exportKubeconfigCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL. It is assumed that the external endpoint has the same controlplane TLS within the host cluster")
 }
 
 func buildCompleteKubeconfig(path string) error {
@@ -91,15 +89,9 @@ func buildCompleteKubeconfig(path string) error {
 	kubeconfig.Contexts["in-cluster"] = inClusterContext
 
 	if externalControlplaneURL != "" {
-		externalControlplaneURLParsed, err := url.Parse(externalControlplaneURL)
-		if err != nil {
-			return err
-		}
-
 		externalCluster := defaultCluster.DeepCopy()
-		externalHostname := externalControlplaneURLParsed.Hostname()
 		externalCluster.Server = externalControlplaneURL
-		externalCluster.TLSServerName = externalHostname
+		externalCluster.TLSServerName = inClusterHostname
 		kubeconfig.Clusters["external"] = externalCluster
 
 		externalContext := defaultContext.DeepCopy()
