@@ -6,6 +6,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"net/url"
 	"os"
 
 	"github.com/meln5674/gosh"
@@ -20,6 +22,7 @@ import (
 
 var (
 	externalControlplaneURL string
+	externalControlplaneCA  string
 	kubeconfigToExportPath  string
 )
 
@@ -59,7 +62,8 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	exportKubeconfigCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
-	exportKubeconfigCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL. It is assumed that the external endpoint has the same controlplane TLS within the host cluster")
+	exportKubeconfigCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL.")
+	exportKubeconfigCmd.Flags().StringVar(&externalControlplaneCA, "external-controlplane-ca", "", "Path to a certificate authority file that the external controlplane url is reencrypted with. Otherwise, it is assumed that the controlplane TLS is untouched")
 }
 
 func buildCompleteKubeconfig(path string) error {
@@ -90,8 +94,23 @@ func buildCompleteKubeconfig(path string) error {
 
 	if externalControlplaneURL != "" {
 		externalCluster := defaultCluster.DeepCopy()
+
+		externalControlplaneURLParsed, err := url.Parse(externalControlplaneURL)
+		if err != nil {
+			return err
+		}
+
 		externalCluster.Server = externalControlplaneURL
-		externalCluster.TLSServerName = inClusterHostname
+		if externalControlplaneCA != "" {
+			externalCluster.CertificateAuthorityData, err = ioutil.ReadFile(externalControlplaneCA)
+			if err != nil {
+				return errors.Wrap(err, "Could not load external controlplane CA file")
+			}
+			externalCluster.TLSServerName = externalControlplaneURLParsed.Hostname()
+		} else {
+			externalCluster.TLSServerName = inClusterHostname
+		}
+
 		kubeconfig.Clusters["external"] = externalCluster
 
 		externalContext := defaultContext.DeepCopy()
