@@ -485,10 +485,7 @@ func (c Case) Run() bool {
 				c.LoadFlags, memcachedTarballPath,
 			).WithStreams(GinkgoOutErr))
 
-			if c.Controlplane.External {
-				By("Using the external kubeconfig context")
-				ExpectRun(gosh.Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "config", "use-context", "external")...).WithStreams(GinkgoOutErr))
-			} else {
+			if !c.Controlplane.External {
 				By("Forwarding the controplane port")
 				controlplanePortForward := kinkOpts.PortForward(
 					&kindKubeOpts,

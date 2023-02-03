@@ -145,6 +145,7 @@ func buildCompleteKubeconfig(ctx context.Context, path string) error {
 		externalContext := defaultContext.DeepCopy()
 		externalContext.Cluster = "external"
 		exportedKubeconfig.Contexts["external"] = externalContext
+		exportedKubeconfig.CurrentContext = "external"
 	}
 
 	klog.V(4).Infof("%#v", exportedKubeconfig)
