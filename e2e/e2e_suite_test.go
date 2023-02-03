@@ -246,6 +246,40 @@ func InitKindCluster() {
 			WithStreams(GinkgoOutErr),
 	)
 
+	nginxKubeFlags := kindKubeOpts
+	nginxKubeFlags.ConfigOverrides.Context.Namespace = "ingress-nginx"
+	ExpectRun(
+		gosh.
+			Command(helm.Upgrade(
+				&helmOpts,
+				&helm.ChartFlags{
+					RepositoryURL: ingressNginxChartRepo,
+					ChartName:     ingressNginxChartName,
+					Version:       ingressNginxChartVersion,
+				},
+				&helm.ReleaseFlags{
+					Name: "ingress-nginx",
+					Set: map[string]string{
+						"controller.kind":                             "DaemonSet",
+						"controller.service.type":                     "ClusterIP",
+						"controller.hostPort.enabled":                 "true",
+						"controller.extraArgs.enable-ssl-passthrough": "true",
+					},
+					UpgradeFlags: []string{"--create-namespace"},
+				},
+				&nginxKubeFlags,
+			)...).
+			WithStreams(GinkgoOutErr),
+	)
+	ExpectRun(
+		gosh.
+			Command(kubectl.Kubectl(
+				&kubectlOpts,
+				&nginxKubeFlags,
+				"rollout", "status", "ds/ingress-nginx-controller",
+			)...).
+			WithStreams(GinkgoOutErr),
+	)
 }
 
 type KinkFlags struct {
@@ -278,11 +312,15 @@ func (k *KinkFlags) Kink(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release 
 	return gosh.Command(cmd...).UsingProcessGroup()
 }
 
-func (k *KinkFlags) CreateCluster(ku *kubectl.KubeFlags, targetKubeconfigPath string, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
+func (k *KinkFlags) CreateCluster(ku *kubectl.KubeFlags, targetKubeconfigPath string, controlplaneIngressURL string, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
 	args := []string{"create", "cluster"}
 	if targetKubeconfigPath != "" {
 		args = append(args, "--out-kubeconfig", targetKubeconfigPath)
 	}
+	if controlplaneIngressURL != "" {
+		args = append(args, "--controlplane-ingress-url", controlplaneIngressURL)
+	}
+	args = append(args, release.UpgradeFlags...)
 	return k.Kink(ku, chart, release, args...)
 }
 
@@ -325,19 +363,29 @@ type ExtraChart struct {
 }
 
 type CaseIngressService struct {
-	Namespace         string
-	Name              string
-	HTTPPortName      string
-	HTTPSPortName     string
-	WordpressHostname string
+	Namespace     string
+	Name          string
+	HTTPPortName  string
+	HTTPSPortName string
+	Hostname      string
+}
+
+type CaseControlplane struct {
+	External bool
+	NodePort bool
+}
+
+type CaseWordpress struct {
+	Set     map[string]string
+	Ingress CaseIngressService
 }
 
 type Case struct {
 	Name         string
 	LoadFlags    []string
-	WordpressSet map[string]string
+	Wordpress    CaseWordpress
 	ExtraCharts  []ExtraChart
-	Ingress      CaseIngressService
+	Controlplane CaseControlplane
 }
 
 func (c Case) Run() bool {
@@ -353,8 +401,6 @@ func (c Case) Run() bool {
 			}
 			kinkKubeconfigPath := filepath.Join("../integration-test", "kink."+c.Name+".kubeconfig")
 
-			ExpectRun(gosh.Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "create", "namespace", c.Name)...).WithStreams(GinkgoOutErr))
-
 			chart := helm.ChartFlags{
 				ChartName: "../helm/kink",
 			}
@@ -369,6 +415,7 @@ func (c Case) Run() bool {
 			ExpectRun(kinkOpts.CreateCluster(
 				&kindKubeOpts,
 				kinkKubeconfigPath,
+				"https://localhost",
 				&chart,
 				&release,
 			).WithStreams(GinkgoOutErr))
@@ -438,16 +485,21 @@ func (c Case) Run() bool {
 				c.LoadFlags, memcachedTarballPath,
 			).WithStreams(GinkgoOutErr))
 
-			By("Forwarding the controplane port")
-			controlplanePortForward := kinkOpts.PortForward(
-				&kindKubeOpts,
-				&chart,
-				&release,
-			).WithStreams(GinkgoOutErr)
-			ExpectStart(controlplanePortForward)
-			DeferCleanup(func() {
-				ExpectStop(controlplanePortForward)
-			})
+			if c.Controlplane.External {
+				By("Using the external kubeconfig context")
+				ExpectRun(gosh.Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "config", "use-context", "external")...).WithStreams(GinkgoOutErr))
+			} else {
+				By("Forwarding the controplane port")
+				controlplanePortForward := kinkOpts.PortForward(
+					&kindKubeOpts,
+					&chart,
+					&release,
+				).WithStreams(GinkgoOutErr)
+				ExpectStart(controlplanePortForward)
+				DeferCleanup(func() {
+					ExpectStop(controlplanePortForward)
+				})
+			}
 			Eventually(func() error {
 				return gosh.Command(kubectl.Version(&kubectlOpts, &kinkKubeOpts)...).WithStreams(GinkgoOutErr).Run()
 			}, "10s", "1s").Should(Succeed())
@@ -479,7 +531,7 @@ func (c Case) Run() bool {
 			wordpressRelease := helm.ReleaseFlags{
 				Name:         "wordpress",
 				UpgradeFlags: []string{"--debug"},
-				Set:          c.WordpressSet,
+				Set:          c.Wordpress.Set,
 			}
 			ExpectRun(gosh.Command(helm.RepoAdd(&helmOpts, &wordpressChart)...).WithStreams(GinkgoOutErr))
 			ExpectRun(gosh.Command(helm.RepoUpdate(&helmOpts, wordpressChart.RepoName())...).WithStreams(GinkgoOutErr))
@@ -495,13 +547,13 @@ func (c Case) Run() bool {
 				Eventually(func() error { _, err := http.Get("http://localhost:8080"); return err }, "10s", "1s").Should(Succeed())
 			}()
 
-			if c.Ingress.Name == "" {
+			if c.Wordpress.Ingress.Name == "" {
 				return
 			}
 
 			svc := corev1.Service{}
 			ExpectRun(gosh.
-				Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "get", "service", "--namespace", c.Ingress.Namespace, c.Ingress.Name, "-o", "json")...).
+				Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "get", "service", "--namespace", c.Wordpress.Ingress.Namespace, c.Wordpress.Ingress.Name, "-o", "json")...).
 				WithStreams(
 					gosh.ForwardErr,
 					gosh.FuncOut(gosh.SaveJSON(&svc)),
@@ -511,10 +563,10 @@ func (c Case) Run() bool {
 			httpPort := int32(0)
 			httpsPort := int32(0)
 			for _, port := range svc.Spec.Ports {
-				if port.Name == c.Ingress.HTTPPortName {
+				if port.Name == c.Wordpress.Ingress.HTTPPortName {
 					httpPort = port.NodePort
 				}
-				if port.Name == c.Ingress.HTTPSPortName {
+				if port.Name == c.Wordpress.Ingress.HTTPSPortName {
 					httpsPort = port.NodePort
 				}
 			}
@@ -528,7 +580,7 @@ func (c Case) Run() bool {
 				defer ExpectStop(portForward)
 				req, err := http.NewRequest("GET", "http://localhost:8080", nil)
 				Expect(err).ToNot(HaveOccurred())
-				req.Header.Set("Host", c.Ingress.WordpressHostname)
+				req.Header.Set("Host", c.Wordpress.Ingress.Hostname)
 
 				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "10s", "1s").Should(Succeed())
 			}()
@@ -543,7 +595,7 @@ func (c Case) Run() bool {
 
 				req, err := http.NewRequest("GET", "https://localhost:8080", nil)
 				Expect(err).ToNot(HaveOccurred())
-				req.Header.Set("Host", c.Ingress.WordpressHostname)
+				req.Header.Set("Host", c.Wordpress.Ingress.Hostname)
 				// TODO: Actually set up a cert for this
 				http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "10s", "1s").Should(Succeed())
@@ -570,20 +622,29 @@ func CleanupPVCDirs() {
 
 var _ = Case{
 	Name: "k3s",
-	WordpressSet: map[string]string{
-		"persistence.enabled":        "true",
-		"persistence.storageClass":   "shared-local-path",
-		"persistence.accessModes":    "{ReadWriteMany}",
-		"replicaCount":               "2",
-		"podAntiAffinityPreset":      "hard",
-		"service.type":               "ClusterIP",
-		"image.pullPolicy":           "Never",
-		"ingress.enabled":            "true",
-		"ingress.hostname":           "wordpress.ingress.local",
-		"mariadb.enabled":            "true",
-		"mariadb.image.pullPolicy":   "Never",
-		"memcached.enabled":          "true",
-		"memcached.image.pullPolicy": "Never",
+	Wordpress: CaseWordpress{
+		Set: map[string]string{
+			"persistence.enabled":        "true",
+			"persistence.storageClass":   "shared-local-path",
+			"persistence.accessModes":    "{ReadWriteMany}",
+			"replicaCount":               "2",
+			"podAntiAffinityPreset":      "hard",
+			"service.type":               "ClusterIP",
+			"image.pullPolicy":           "Never",
+			"ingress.enabled":            "true",
+			"ingress.hostname":           "wordpress.ingress.local",
+			"mariadb.enabled":            "true",
+			"mariadb.image.pullPolicy":   "Never",
+			"memcached.enabled":          "true",
+			"memcached.image.pullPolicy": "Never",
+		},
+		Ingress: CaseIngressService{
+			Namespace:     "default",
+			Name:          "ingress-nginx-controller",
+			HTTPPortName:  "http",
+			HTTPSPortName: "https",
+			Hostname:      "wordpress.ingress.local",
+		},
 	},
 	ExtraCharts: []ExtraChart{
 		{
@@ -597,65 +658,71 @@ var _ = Case{
 			},
 		},
 	},
-	Ingress: CaseIngressService{
-		Namespace:         "default",
-		Name:              "ingress-nginx-controller",
-		HTTPPortName:      "http",
-		HTTPSPortName:     "https",
-		WordpressHostname: "wordpress.ingress.local",
+	Controlplane: CaseControlplane{
+		External: true,
 	},
 }.Run()
 
 var _ = Case{
 	Name:      "k3s-single",
 	LoadFlags: []string{"--only-load-workers=false"},
-	WordpressSet: map[string]string{
-		"persistence.enabled":        "true",
-		"persistence.storageClass":   "shared-local-path",
-		"persistence.accessModes":    "{ReadWriteMany}",
-		"replicaCount":               "1",
-		"mariadb.enabled":            "true",
-		"memcached.enabled":          "true",
-		"service.type":               "ClusterIP",
-		"ingress.enabled":            "true",
-		"image.pullPolicy":           "Never",
-		"mariadb.image.pullPolicy":   "Never",
-		"memcached.image.pullPolicy": "Never",
+	Wordpress: CaseWordpress{
+		Set: map[string]string{
+			"persistence.enabled":        "true",
+			"persistence.storageClass":   "shared-local-path",
+			"persistence.accessModes":    "{ReadWriteMany}",
+			"replicaCount":               "1",
+			"mariadb.enabled":            "true",
+			"memcached.enabled":          "true",
+			"service.type":               "ClusterIP",
+			"ingress.enabled":            "true",
+			"image.pullPolicy":           "Never",
+			"mariadb.image.pullPolicy":   "Never",
+			"memcached.image.pullPolicy": "Never",
+		},
 	},
 }.Run()
 
 var _ = Case{
 	Name: "k3s-ha",
-	WordpressSet: map[string]string{
-		"persistence.enabled":        "true",
-		"persistence.storageClass":   "shared-local-path",
-		"persistence.accessModes":    "{ReadWriteMany}",
-		"replicaCount":               "2",
-		"podAntiAffinityPreset":      "hard",
-		"mariadb.enabled":            "true",
-		"memcached.enabled":          "true",
-		"service.type":               "ClusterIP",
-		"ingress.enabled":            "true",
-		"image.pullPolicy":           "Never",
-		"mariadb.image.pullPolicy":   "Never",
-		"memcached.image.pullPolicy": "Never",
+	Wordpress: CaseWordpress{
+		Set: map[string]string{
+			"persistence.enabled":        "true",
+			"persistence.storageClass":   "shared-local-path",
+			"persistence.accessModes":    "{ReadWriteMany}",
+			"replicaCount":               "2",
+			"podAntiAffinityPreset":      "hard",
+			"mariadb.enabled":            "true",
+			"memcached.enabled":          "true",
+			"service.type":               "ClusterIP",
+			"ingress.enabled":            "true",
+			"image.pullPolicy":           "Never",
+			"mariadb.image.pullPolicy":   "Never",
+			"memcached.image.pullPolicy": "Never",
+		},
+	},
+	Controlplane: CaseControlplane{
+		External: true,
+		NodePort: true,
 	},
 }.Run()
 
 var _ = Case{
 	Name: "rke2",
-	WordpressSet: map[string]string{
-		"persistence.enabled":        "true",
-		"persistence.storageClass":   "shared-local-path",
-		"persistence.accessModes":    "{ReadWriteMany}",
-		"replicaCount":               "2",
-		"podAntiAffinityPreset":      "hard",
-		"mariadb.enabled":            "true",
-		"memcached.enabled":          "true",
-		"service.type":               "ClusterIP",
-		"ingress.enabled":            "true",
-		"image.pullPolicy":           "Never",
-		"mariadb.image.pullPolicy":   "Never",
-		"memcached.image.pullPolicy": "Never",
+	Wordpress: CaseWordpress{
+		Set: map[string]string{
+			"persistence.enabled":        "true",
+			"persistence.storageClass":   "shared-local-path",
+			"persistence.accessModes":    "{ReadWriteMany}",
+			"replicaCount":               "2",
+			"podAntiAffinityPreset":      "hard",
+			"mariadb.enabled":            "true",
+			"memcached.enabled":          "true",
+			"service.type":               "ClusterIP",
+			"ingress.enabled":            "true",
+			"image.pullPolicy":           "Never",
+			"mariadb.image.pullPolicy":   "Never",
+			"memcached.image.pullPolicy": "Never",
+		},
 	},
 }.Run()

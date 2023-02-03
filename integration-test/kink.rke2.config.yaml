@@ -4,7 +4,9 @@ kubernetes:
   context:
     namespace: rke2
 release:
-  upgradeFlags: ['--timeout=15m']
+  upgradeFlags:
+  - --timeout=1h
+  - --create-namespace
   set:
     image.pullPolicy: Never
     controlplane.securityContext.privileged: "true"

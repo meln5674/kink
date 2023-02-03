@@ -52,16 +52,6 @@ type services will also have their ingress IPs set to this service IP.
 			ctx, stop := context.WithCancel(context.TODO())
 			defer stop()
 
-			hostConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-				&clientcmd.ClientConfigLoadingRules{
-					ExplicitPath: config.Kubernetes.Kubeconfig,
-				},
-				&config.Kubernetes.ConfigOverrides,
-			).ClientConfig()
-			if err != nil {
-				return err
-			}
-
 			guestConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 				&clientcmd.ClientConfigLoadingRules{
 					ExplicitPath: guestKubeConfig.Kubeconfig,
@@ -72,7 +62,7 @@ type services will also have their ingress IPs set to this service IP.
 				return err
 			}
 
-			hostClient, err := kubernetes.NewForConfig(hostConfig)
+			hostClient, err := kubernetes.NewForConfig(kubeconfig)
 			if err != nil {
 				return err
 			}
@@ -111,7 +101,7 @@ type services will also have their ingress IPs set to this service IP.
 					releaseNamespace,
 					releaseConfig.LBManagerFullname,
 					resourcelock.ResourceLockConfig{Identity: lbSvcLeaderElectionIdentity},
-					hostConfig,
+					kubeconfig,
 					lbSvcLeaderElectionRenew,
 				)
 				if err != nil {

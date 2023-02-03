@@ -4,6 +4,9 @@ kubernetes:
   context:
     namespace: k3s
 release:
+  upgradeFlags:
+  - --timeout=1h
+  - --create-namespace
   set:
     image.pullPolicy: Never
     controlplane.securityContext.privileged: "true"
@@ -40,5 +43,11 @@ release:
     workers.extraArgs[0]: '--node-label=foo=bar'
     loadBalancer.enabled: 'true'
     kubeconfig.enabled: 'true'
+
+    controlplane.ingress.enabled:  "true"
+    controlplane.ingress.hosts[0]: "k3s.cluster.local"
+    controlplane.ingress.className: nginx
+    controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
   setString:
+    controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"
     extraArgs[1]: '1'

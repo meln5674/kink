@@ -82,7 +82,7 @@ func addFlag(flags map[string]string, f *clientcmd.FlagInfo, value, zero interfa
 	if value == nil || isNillableNil(reflect.ValueOf(value)) || reflect.DeepEqual(value, zero) {
 		return
 	}
-	klog.Infof("%s=%#v (%#v)", f.LongName, value, zero)
+	klog.V(3).Infof("%s=%#v (%#v)", f.LongName, value, zero)
 	if str == "" {
 		flags[f.LongName] = fmt.Sprintf("%s", value)
 	} else {

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	k8srest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
@@ -40,6 +41,8 @@ var (
 
 	// releaseConfig are the details of the last release of the guest cluster needed by local commands
 	releaseConfig cfg.ReleaseConfig
+
+	kubeconfig *k8srest.Config
 
 // TODO: Get this by parsing config
 )
@@ -102,13 +105,13 @@ func loadConfig() error {
 	config.Override(&configOverrides)
 	klog.V(1).Infof("%#v", config)
 
-	kubeconfig := config.Kubernetes.Kubeconfig
-	if kubeconfig == "" {
-		kubeconfig = os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	kubeconfigPath := config.Kubernetes.Kubeconfig
+	if kubeconfigPath == "" {
+		kubeconfigPath = os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
 	}
 	releaseNamespace, _, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{
-			ExplicitPath: kubeconfig,
+			ExplicitPath: kubeconfigPath,
 		},
 		&config.Kubernetes.ConfigOverrides,
 	).Namespace()
@@ -165,6 +168,15 @@ func loadConfig() error {
 		}
 	}
 	klog.V(1).Infof("%#v", releaseConfig)
+	kubeconfig, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{
+			ExplicitPath: kubeconfigPath,
+		},
+		&config.Kubernetes.ConfigOverrides,
+	).ClientConfig()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

@@ -91,6 +91,6 @@ func init() {
 	// is called directly, e.g.:
 	// createClusterCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 	createClusterCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
-	createClusterCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL")
+	createClusterCmd.Flags().StringVar(&controlplaneIngressURL, "controlplane-ingress-url", "", "If ingress is used for the controlplane, instead use this URL for the external kubeconfig context, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used.")
 	createClusterCmd.Flags().BoolVar(&doRepoUpdate, "repo-update", true, "Update the helm repo before upgrading. Note that if a new chart version has become availabe since install or last upgrade, this will result in upgrading the chart. If this unacceptable, set this to false, or use --chart-version to pin a specific version")
 }

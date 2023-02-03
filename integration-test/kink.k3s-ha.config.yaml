@@ -4,6 +4,9 @@ kubernetes:
   context:
     namespace: k3s-ha
 release:
+  upgradeFlags:
+  - --timeout=1h
+  - --create-namespace
   set:
     image.pullPolicy: Never
     controlplane.securityContext.privileged: "true"
@@ -15,3 +18,5 @@ release:
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
     controlplane.extraArgs[0]: '--disable=traefik'
+    controlplane.service.type: NodePort
+    controlplane.nodeportHost: localhost

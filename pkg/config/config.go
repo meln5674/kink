@@ -169,6 +169,8 @@ type ReleaseConfig struct {
 	Fullname                   string    `json:"fullname"`
 	ControlplaneFullname       string    `json:"controlplane.fullname"`
 	ControlplanePort           Int       `json:"controlplane.port"`
+	ControlplaneHostname       string    `json:"controlplane.hostname"`
+	ControlplaneIsNodePort     Bool      `json:"controlplane.isNodePort"`
 	LoadBalancerFullname       string    `json:"load-balancer.fullname"`
 	LBManagerFullname          string    `json:"lb-manager.fullname"`
 	Labels                     StringMap `json:"labels"`

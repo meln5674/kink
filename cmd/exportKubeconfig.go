@@ -6,24 +6,27 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
-	"net/url"
 	"os"
 
-	"github.com/meln5674/gosh"
-	"github.com/meln5674/kink/pkg/kubectl"
 	"github.com/pkg/errors"
+
 	"github.com/spf13/cobra"
+
+	"github.com/meln5674/gosh"
+
+	"github.com/meln5674/kink/pkg/kubectl"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/yaml"
 )
 
 var (
-	externalControlplaneURL string
-	externalControlplaneCA  string
-	kubeconfigToExportPath  string
+	kubeconfigToExportPath string
+	controlplaneIngressURL string
 )
 
 // exportKubeconfigCmd represents the exportKubeconfig command
@@ -33,11 +36,12 @@ var exportKubeconfigCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		err := func() error {
 			var err error
-			err = fetchKubeconfig(context.TODO(), kubeconfigToExportPath)
+			ctx := context.TODO()
+			err = fetchKubeconfig(ctx, kubeconfigToExportPath)
 			if err != nil {
 				return err
 			}
-			err = buildCompleteKubeconfig(kubeconfigToExportPath)
+			err = buildCompleteKubeconfig(ctx, kubeconfigToExportPath)
 			if err != nil {
 				return err
 			}
@@ -62,16 +66,15 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	exportKubeconfigCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
-	exportKubeconfigCmd.Flags().StringVar(&externalControlplaneURL, "external-controlplane-url", "", "A URL external to the parent cluster which the new controlplane will be accessible at. If present, an extra context called \"external\" will be added with this URL.")
-	exportKubeconfigCmd.Flags().StringVar(&externalControlplaneCA, "external-controlplane-ca", "", "Path to a certificate authority file that the external controlplane url is reencrypted with. Otherwise, it is assumed that the controlplane TLS is untouched")
+	exportKubeconfigCmd.Flags().StringVar(&controlplaneIngressURL, "controlplane-ingress-url", "", "If ingress is used for the controlplane, instead use this URL, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used.")
 }
 
-func buildCompleteKubeconfig(path string) error {
-	kubeconfig, err := clientcmd.LoadFromFile(path)
+func buildCompleteKubeconfig(ctx context.Context, path string) error {
+	exportedKubeconfig, err := clientcmd.LoadFromFile(path)
 	if err != nil {
 		return err
 	}
-	defaultCluster, ok := kubeconfig.Clusters["default"]
+	defaultCluster, ok := exportedKubeconfig.Clusters["default"]
 	if !ok {
 		return fmt.Errorf("Extracted kubeconfig did not contain expected cluster")
 	}
@@ -81,51 +84,82 @@ func buildCompleteKubeconfig(path string) error {
 	inClusterCluster.Server = inClusterURL
 	inClusterCluster.TLSServerName = inClusterHostname
 
-	kubeconfig.Clusters["in-cluster"] = inClusterCluster
+	exportedKubeconfig.Clusters["in-cluster"] = inClusterCluster
 
-	defaultContext, ok := kubeconfig.Contexts["default"]
+	defaultContext, ok := exportedKubeconfig.Contexts["default"]
 	if !ok {
 		return fmt.Errorf("Extracted kubeconfig did not contain expected context")
 	}
 
 	inClusterContext := defaultContext.DeepCopy()
 	inClusterContext.Cluster = "in-cluster"
-	kubeconfig.Contexts["in-cluster"] = inClusterContext
+	exportedKubeconfig.Contexts["in-cluster"] = inClusterContext
 
-	if externalControlplaneURL != "" {
-		externalCluster := defaultCluster.DeepCopy()
-
-		externalControlplaneURLParsed, err := url.Parse(externalControlplaneURL)
-		if err != nil {
-			return err
-		}
-
-		externalCluster.Server = externalControlplaneURL
-		if externalControlplaneCA != "" {
-			externalCluster.CertificateAuthorityData, err = ioutil.ReadFile(externalControlplaneCA)
-			if err != nil {
-				return errors.Wrap(err, "Could not load external controlplane CA file")
-			}
-			externalCluster.TLSServerName = externalControlplaneURLParsed.Hostname()
+	externalCluster, err := func() (*clientcmdapi.Cluster, error) {
+		if releaseConfig.ControlplaneHostname == "" {
+			klog.Warningf("Neither ingress nor a nodeport host has been set for the controlplane, kubeconfig will not have an external context: %v", err)
+			return nil, nil
 		} else {
-			externalCluster.TLSServerName = inClusterHostname
+			externalCluster := defaultCluster.DeepCopy()
+			if releaseConfig.ControlplaneIsNodePort {
+				k8sClient, err := kubernetes.NewForConfig(kubeconfig)
+				if err != nil {
+					klog.Warningf("Could not retrieve controlplane service to get nodePort, kubeconfig will not have an external context: %v", err)
+					return nil, nil
+				}
+				svc, err := k8sClient.CoreV1().Services(releaseNamespace).Get(ctx, releaseConfig.ControlplaneFullname, metav1.GetOptions{})
+				if err != nil {
+					klog.Warningf("Could not retrieve controlplane service to get nodePort, kubeconfig will not have an external context: %v", err)
+					return nil, nil
+				}
+				var port int32
+				for _, portElem := range svc.Spec.Ports {
+					if portElem.Name == "api" {
+						port = portElem.NodePort
+						break
+					}
+				}
+				if port == 0 {
+					klog.Warningf("Controlplane service has not been assigned a NodePort yet, kubeconfig will not have an external context: %v", err)
+					return nil, nil
+				}
+				externalCluster.Server = fmt.Sprintf("https://%s:%d", releaseConfig.ControlplaneHostname, port)
+				externalCluster.TLSServerName = releaseConfig.ControlplaneHostname
+			} else if controlplaneIngressURL != "" {
+				externalCluster.Server = controlplaneIngressURL
+				externalCluster.TLSServerName = releaseConfig.ControlplaneHostname
+			} else {
+				externalCluster.Server = fmt.Sprintf("https://%s", releaseConfig.ControlplaneHostname)
+				externalCluster.TLSServerName = ""
+			}
+
+			return externalCluster, nil
 		}
-
-		kubeconfig.Clusters["external"] = externalCluster
-
-		externalContext := defaultContext.DeepCopy()
-		externalContext.Cluster = "external"
-		kubeconfig.Contexts["external"] = externalContext
-	}
-	var serializableKubeconfig clientcmdv1.Config
-	err = clientcmdv1.Convert_api_Config_To_v1_Config(kubeconfig, &serializableKubeconfig, nil)
+	}()
 	if err != nil {
 		return err
 	}
+
+	if externalCluster != nil {
+		exportedKubeconfig.Clusters["external"] = externalCluster
+		externalContext := defaultContext.DeepCopy()
+		externalContext.Cluster = "external"
+		exportedKubeconfig.Contexts["external"] = externalContext
+	}
+
+	klog.V(4).Infof("%#v", exportedKubeconfig)
+
+	var serializableKubeconfig clientcmdv1.Config
+	err = clientcmdv1.Convert_api_Config_To_v1_Config(exportedKubeconfig, &serializableKubeconfig, nil)
+	if err != nil {
+		return err
+	}
+
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
+
 	defer f.Close()
 	bytes, err := yaml.Marshal(&serializableKubeconfig)
 	if err != nil {

@@ -12,21 +12,6 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
-  hosts:
-    - host: chart-example.local
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
-  tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
 
 kubelet:
   persistence:
@@ -80,6 +65,9 @@ controlplane:
     rke2-discover:
       port: 9345
 
+  # If this is set, this will be used along with the nodeport to build the apiserver url
+  nodeportHost: ''
+
     
   resources: {}
     # We usually recommend not to specify default resources and to leave this as a conscious
@@ -115,6 +103,18 @@ controlplane:
     # Additional places to mount the shared /etc/rancher and /var/lib/rancher volume to
     # Uses the same directory for both mountPath and subPath
     extraMounts: []
+
+  # If enabled, the first host listed will be used to build the kubeconfig apiserver url
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    hosts: []
+    # - host: chart-example.local
+    tls: []
+
 
   # If true, will taint controlplane nodes with node-role.kubernetes.io/control-plane=true:NoSchedule
   defaultTaint: true

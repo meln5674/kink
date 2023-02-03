@@ -2,6 +2,20 @@
 fullname: {{ include "kink.fullname" . }}
 controlplane.fullname: {{ include "kink.controlplane.fullname" . }}
 controlplane.port: '{{ .Values.controlplane.service.api.port }}'
+controlplane.hostname: |-
+  {{ if .Values.controlplane.ingress.enabled }}
+  {{- index .Values.controlplane.ingress.hosts 0 }}
+  {{- else if .Values.controlplane.nodeportHost }}
+  {{- .Values.controlplane.nodeportHost }}
+  {{- end }}
+controlplane.isNodePort: |-
+  {{ if .Values.controlplane.ingress.enabled }}
+  false
+  {{- else if .Values.controlplane.nodeportHost }}
+  true
+  {{- else }}
+  false
+  {{- end }}
 load-balancer.fullname: {{ include "kink.load-balancer.fullname" . }}
 lb-manager.fullname: {{ include "kink.lb-manager.fullname" . }}
 labels: '{{ include "kink.labels" . | fromYaml | toJson }}'

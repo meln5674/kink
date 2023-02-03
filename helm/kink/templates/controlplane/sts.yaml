@@ -179,6 +179,11 @@ spec:
           - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc'
           - '--tls-san={{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
           - '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
+          {{- if .Values.controlplane.ingress.enabled }}
+          {{- range .Values.controlplane.ingress.hosts }}
+          - '--tls-san={{ . }}'
+          {{- end }}
+          {{- end }}
           {{- if .Values.controlplane.defaultTaint }}
           - --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule
           {{- end }}
