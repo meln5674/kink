@@ -154,13 +154,13 @@ worker:
     type: ClusterIP
     kubelet-metrics:
       port: 10250
-  extraPorts:
-  - name: http
-    port: 80
-    protocol: TCP
-  - name: https
-    port: 443
-    protoco: TCP
+  extraPorts: []
+  # - name: http
+  #   port: 80
+  #   protocol: TCP
+  # - name: https
+  #   port: 443
+  #   protoco: TCP
 
   resources: {}
     # We usually recommend not to specify default resources and to leave this as a conscious
@@ -261,6 +261,33 @@ loadBalancer:
     extraArgs: []
     extraVolumes: []
     extraVolumeMounts: []
+
+  # If enabled, the load balancer manager will search for guest ingresses and make them accessible from the host ingress
+  ingress:
+    enabled: false
+
+
+    # Each mapping defines a different ingress resource to be managed
+    classMappings: []
+    # - guestClassName: # The ingressClassName on the guest ingress resources to watch for. Must be unique
+    #   className: # The ingressClassName on the host ingress resource to create. May be repeated.
+    #   annotations: {}
+    #   # If the ingress controller is implemented as a NodePort/LoadBalancer
+    #   nodePort:
+    #     namespace: # Namespace of the service
+    #     name: # Name of the service
+    #     # Can only specify one, https requires SSL passthrough
+    #     httpPort: # Name or port number of the http port
+    #     httpsPort: # Name or port number of the https port
+    #   # If the ingress controller is implemented as a DaemonSet with a host port
+    #   hostPort:
+    #     # Can only specify one, https requires SSL passthrough
+    #     httpPort: # The http host port
+    #     httpsPort: # The https host port
+
+
+
+
 
 # If enabled, run a hook job to create a secret containing a kubeconfig usable by mounting within another pod
 kubeconfig:

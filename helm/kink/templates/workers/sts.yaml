@@ -151,6 +151,19 @@ spec:
               containerPort: {{ .port }}
               protocol: {{ .protocol }}
             {{- end }}
+            {{- if .Values.loadBalancer.ingress.enabled }}
+            {{- range .Values.loadBalancer.ingress.classMappings }}
+            {{- with .hostPort }}
+            {{- with .httpPort }}
+            - containerPort: {{ . }}
+            {{- end }}
+            {{- with .httpsPort }}
+            - containerPort: {{ . }}
+            {{- end }}
+              protocol: TCP
+            {{- end }}
+            {{- end }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

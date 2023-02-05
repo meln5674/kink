@@ -48,6 +48,13 @@ release:
     controlplane.ingress.hosts[0]: "k3s.cluster.local"
     controlplane.ingress.className: nginx
     controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
+
+    loadBalancer.ingress.enabled: 'true'
+    loadBalancer.ingress.classMappings[0].guestClassName: nginx
+    loadBalancer.ingress.classMappings[0].className: nginx
+    loadBalancer.ingress.classMappings[0].nodePort.namespace: default
+    loadBalancer.ingress.classMappings[0].nodePort.name: ingress-nginx-controller
+    loadBalancer.ingress.classMappings[0].nodePort.httpPort: http
   setString:
     controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"
     extraArgs[1]: '1'

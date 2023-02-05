@@ -20,3 +20,15 @@ release:
     sharedPersistence.storageClassName: "shared-local-path"
     controlplane.extraArgs[0]: '--disable=rke2-ingress-nginx'
     controlplane.extraArgs[1]: '--disable=rke2-metrics-server'
+
+    loadBalancer.enabled: 'true'
+    kubeconfig.enabled: 'true'
+
+    loadBalancer.ingress.enabled: 'true'
+    loadBalancer.ingress.classMappings[0].guestClassName: nginx
+    loadBalancer.ingress.classMappings[0].className: nginx
+
+    loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
+  setString:
+    loadBalancer.ingress.classMappings[0].hostPort.httpsPort: '443'
+    loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"

@@ -10,11 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	gtypes "github.com/onsi/ginkgo/v2/types"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
 
 	"github.com/google/go-containerregistry/pkg/crane"
@@ -32,6 +34,12 @@ func TestE2e(t *testing.T) {
 }
 
 var (
+	// These 4 are used when debugging interactively. They should be set to false in the actual repo
+	noCleanup = false
+	noCreate  = false
+	noDeps    = false
+	noRebuild = false
+
 	imageRepo  string
 	imageTag   string
 	builtImage string
@@ -87,9 +95,15 @@ var _ = BeforeSuite(func() {
 		flag.Set("v", "11")
 		klog.SetOutput(GinkgoWriter)
 	}
+	http.DefaultClient.Transport = transport.DebugWrappers(http.DefaultTransport)
+	http.DefaultClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
 
 	BuildImage()
-	FetchWordpressImages()
+	if !noDeps {
+		FetchWordpressImages()
+	}
 	InitKindCluster()
 
 	podWatch := gosh.
@@ -98,6 +112,27 @@ var _ = BeforeSuite(func() {
 	ExpectStart(podWatch)
 	DeferCleanup(func() {
 		ExpectStop(podWatch)
+	})
+	ingressWatch := gosh.
+		Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "get", "ingress", "-A", "-w")...).
+		WithStreams(GinkgoOutErr)
+	ExpectStart(ingressWatch)
+	DeferCleanup(func() {
+		ExpectStop(ingressWatch)
+	})
+	serviceWatch := gosh.
+		Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "get", "service", "-A", "-w")...).
+		WithStreams(GinkgoOutErr)
+	ExpectStart(serviceWatch)
+	DeferCleanup(func() {
+		ExpectStop(serviceWatch)
+	})
+	endpointWatch := gosh.
+		Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "get", "endpoints", "-A", "-w")...).
+		WithStreams(GinkgoOutErr)
+	ExpectStart(endpointWatch)
+	DeferCleanup(func() {
+		ExpectStop(endpointWatch)
 	})
 })
 
@@ -129,25 +164,34 @@ func DeferExpectStop(cmd gosh.Commander) {
 
 func BuildImage() {
 	imageRepo = "local.host/meln5674/kink"
-	imageTag = "it" //fmt.Sprintf("%d", time.Now().Unix())
+	if noRebuild {
+		imageTag = "it"
+	} else {
+		imageTag = fmt.Sprintf("%d", time.Now().Unix())
+	}
 	builtImage = fmt.Sprintf("%s:%s", imageRepo, imageTag)
 
-	ExpectRun(
-		/*
-			gosh.
-				Command(docker.Build(&dockerOpts, builtImage, "..")...).
-				WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}).
-				WithStreams(GinkgoOutErr),
-		*/
-		gosh.And(
-			gosh.
-				Command("../build-env.sh", "make", "-C", "..", "bin/kink").
-				WithParentEnvAnd(map[string]string{"IMAGE_TAG": imageTag}),
-			gosh.
-				Command(docker.Build(&dockerOpts, builtImage, "..", "-f", "../standalone.Dockerfile")...).
-				WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}),
-		).WithStreams(GinkgoOutErr),
-	)
+	if !noRebuild {
+		ExpectRun(
+			/*
+				gosh.
+					Command(docker.Build(&dockerOpts, builtImage, "..")...).
+					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}).
+					WithStreams(GinkgoOutErr),
+			*/
+			gosh.And(
+				gosh.
+					Command("../build-env.sh", "make", "-C", "..", "bin/kink").
+					WithParentEnvAnd(map[string]string{"IMAGE_TAG": imageTag}),
+				gosh.
+					Command(docker.Build(&dockerOpts, builtImage, "..", "-f", "../standalone.Dockerfile")...).
+					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}),
+				gosh.
+					Command(docker.Build(&dockerOpts, fmt.Sprintf("%s:it", imageRepo), "..", "-f", "../standalone.Dockerfile")...).
+					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}),
+			).WithStreams(GinkgoOutErr),
+		)
+	}
 }
 
 func FetchWordpressImages() {
@@ -201,85 +245,95 @@ func InitKindCluster() {
 	kindConfig = []byte(strings.ReplaceAll(string(kindConfig), "${PWD}", filepath.Join(pwd, "..")))
 	ioutil.WriteFile(kindConfigPath, kindConfig, 0700)
 
-	ExpectRun(kindOpts.CreateCluster(kindConfigPath, kindKubeconfigPath))
+	if !noCreate {
+		ExpectRun(kindOpts.CreateCluster(kindConfigPath, kindKubeconfigPath))
+	}
 	DeferCleanup(func() {
-		ExpectRun(kindOpts.DeleteCluster())
+		if !noCleanup {
+			ExpectRun(kindOpts.DeleteCluster())
+		}
 	})
 	DeferCleanup(func() {
-		CleanupPVCDirs()
+		if !noCleanup {
+			CleanupPVCDirs()
+		}
 	})
 
-	ExpectRun(kindOpts.LoadImages(builtImage))
+	if !noRebuild {
+		ExpectRun(kindOpts.LoadImages(builtImage))
+	}
 
-	ExpectRun(
-		gosh.
-			Command(docker.Exec(
-				&dockerOpts,
-				kindOpts.ClusterName+"-control-plane",
-				[]string{},
-				"mkdir", "-p", sharedLocalPathProvisionerMount,
-			)...).
-			WithStreams(GinkgoOutErr),
-	)
+	if !noDeps {
+		ExpectRun(
+			gosh.
+				Command(docker.Exec(
+					&dockerOpts,
+					kindOpts.ClusterName+"-control-plane",
+					[]string{},
+					"mkdir", "-p", sharedLocalPathProvisionerMount,
+				)...).
+				WithStreams(GinkgoOutErr),
+		)
 
-	lppKubeFlags := kindKubeOpts
-	lppKubeFlags.ConfigOverrides.Context.Namespace = "kube-system"
-	ExpectRun(
-		gosh.
-			Command(helm.Upgrade(
-				&helmOpts,
-				&helm.ChartFlags{
-					ChartName: "../charts/local-path-provisioner-0.0.24-dev.tgz",
-				},
-				&helm.ReleaseFlags{
-					Name: "shared-local-path-provisioner",
-					Set: map[string]string{
-						"storageClass.name":    "shared-local-path",
-						"nodePathMap":          "null",
-						"sharedFileSystemPath": sharedLocalPathProvisionerMount,
-						"fullnameOverride":     "shared-local-path-provisioner",
-						"configmap.name":       "shared-local-path-provisioner",
+		lppKubeFlags := kindKubeOpts
+		lppKubeFlags.ConfigOverrides.Context.Namespace = "kube-system"
+		ExpectRun(
+			gosh.
+				Command(helm.Upgrade(
+					&helmOpts,
+					&helm.ChartFlags{
+						ChartName: "../charts/local-path-provisioner-0.0.24-dev.tgz",
 					},
-				},
-				&lppKubeFlags,
-			)...).
-			WithStreams(GinkgoOutErr),
-	)
-
-	nginxKubeFlags := kindKubeOpts
-	nginxKubeFlags.ConfigOverrides.Context.Namespace = "ingress-nginx"
-	ExpectRun(
-		gosh.
-			Command(helm.Upgrade(
-				&helmOpts,
-				&helm.ChartFlags{
-					RepositoryURL: ingressNginxChartRepo,
-					ChartName:     ingressNginxChartName,
-					Version:       ingressNginxChartVersion,
-				},
-				&helm.ReleaseFlags{
-					Name: "ingress-nginx",
-					Set: map[string]string{
-						"controller.kind":                             "DaemonSet",
-						"controller.service.type":                     "ClusterIP",
-						"controller.hostPort.enabled":                 "true",
-						"controller.extraArgs.enable-ssl-passthrough": "true",
+					&helm.ReleaseFlags{
+						Name: "shared-local-path-provisioner",
+						Set: map[string]string{
+							"storageClass.name":    "shared-local-path",
+							"nodePathMap":          "null",
+							"sharedFileSystemPath": sharedLocalPathProvisionerMount,
+							"fullnameOverride":     "shared-local-path-provisioner",
+							"configmap.name":       "shared-local-path-provisioner",
+						},
 					},
-					UpgradeFlags: []string{"--create-namespace"},
-				},
-				&nginxKubeFlags,
-			)...).
-			WithStreams(GinkgoOutErr),
-	)
-	ExpectRun(
-		gosh.
-			Command(kubectl.Kubectl(
-				&kubectlOpts,
-				&nginxKubeFlags,
-				"rollout", "status", "ds/ingress-nginx-controller",
-			)...).
-			WithStreams(GinkgoOutErr),
-	)
+					&lppKubeFlags,
+				)...).
+				WithStreams(GinkgoOutErr),
+		)
+
+		nginxKubeFlags := kindKubeOpts
+		nginxKubeFlags.ConfigOverrides.Context.Namespace = "ingress-nginx"
+		ExpectRun(
+			gosh.
+				Command(helm.Upgrade(
+					&helmOpts,
+					&helm.ChartFlags{
+						RepositoryURL: ingressNginxChartRepo,
+						ChartName:     ingressNginxChartName,
+						Version:       ingressNginxChartVersion,
+					},
+					&helm.ReleaseFlags{
+						Name: "ingress-nginx",
+						Set: map[string]string{
+							"controller.kind":                             "DaemonSet",
+							"controller.service.type":                     "ClusterIP",
+							"controller.hostPort.enabled":                 "true",
+							"controller.extraArgs.enable-ssl-passthrough": "true",
+						},
+						UpgradeFlags: []string{"--create-namespace"},
+					},
+					&nginxKubeFlags,
+				)...).
+				WithStreams(GinkgoOutErr),
+		)
+		ExpectRun(
+			gosh.
+				Command(kubectl.Kubectl(
+					&kubectlOpts,
+					&nginxKubeFlags,
+					"rollout", "status", "ds/ingress-nginx-controller",
+				)...).
+				WithStreams(GinkgoOutErr),
+		)
+	}
 }
 
 type KinkFlags struct {
@@ -358,8 +412,9 @@ func (k *KinkFlags) PortForward(ku *kubectl.KubeFlags, chart *helm.ChartFlags, r
 }
 
 type ExtraChart struct {
-	Chart   helm.ChartFlags
-	Release helm.ReleaseFlags
+	Chart    helm.ChartFlags
+	Release  helm.ReleaseFlags
+	Rollouts []string
 }
 
 type CaseIngressService struct {
@@ -368,6 +423,7 @@ type CaseIngressService struct {
 	HTTPPortName  string
 	HTTPSPortName string
 	Hostname      string
+	HTTPSOnly     bool
 }
 
 type CaseControlplane struct {
@@ -392,7 +448,8 @@ func (c Case) Run() bool {
 	return Describe(c.Name, func() {
 		It("should work", func() {
 			kinkOpts := KinkFlags{
-				Command:     []string{"go", "run", "../main.go"},
+				//Command:     []string{"go", "run", "../main.go"},
+				Command:     []string{"../bin/kink"},
 				ConfigPath:  filepath.Join("../integration-test", "kink."+c.Name+".config.yaml"),
 				ClusterName: c.Name,
 			}
@@ -420,12 +477,41 @@ func (c Case) Run() bool {
 				&release,
 			).WithStreams(GinkgoOutErr))
 			DeferCleanup(func() {
-				ExpectRun(kinkOpts.DeleteCluster(
-					&kindKubeOpts,
-					&chart,
-					&release,
-				).WithStreams(GinkgoOutErr))
+				if !noCleanup {
+					ExpectRun(kinkOpts.DeleteCluster(
+						&kindKubeOpts,
+						&chart,
+						&release,
+					).WithStreams(GinkgoOutErr))
+				}
 			})
+			ExpectRun(
+				gosh.
+					Command(kubectl.Kubectl(
+						&kubectlOpts,
+						&kindKubeOpts,
+						"rollout", "status", fmt.Sprintf("sts/kink-%s-controlplane", c.Name), "-n", c.Name,
+					)...).
+					WithStreams(GinkgoOutErr),
+			)
+			ExpectRun(
+				gosh.
+					Command(kubectl.Kubectl(
+						&kubectlOpts,
+						&kindKubeOpts,
+						"rollout", "status", fmt.Sprintf("sts/kink-%s-worker", c.Name), "-n", c.Name,
+					)...).
+					WithStreams(GinkgoOutErr),
+			)
+			ExpectRun(
+				gosh.
+					Command(kubectl.Kubectl(
+						&kubectlOpts,
+						&kindKubeOpts,
+						"rollout", "status", fmt.Sprintf("deploy/kink-%s-lb-manager", c.Name), "-n", c.Name,
+					)...).
+					WithStreams(GinkgoOutErr),
+			)
 
 			kinkKubeOpts := kubectl.KubeFlags{
 				Kubeconfig: kinkKubeconfigPath,
@@ -453,37 +539,40 @@ func (c Case) Run() bool {
 				`,
 			).WithStreams(GinkgoOutErr))
 
-			wordpressLoadFlags := make([]string, 0, len(c.LoadFlags)+2)
-			wordpressLoadFlags = append(wordpressLoadFlags, c.LoadFlags...)
-			wordpressLoadFlags = append(wordpressLoadFlags, "--parallel-loads", "1")
-			By("Loading an image from the docker daemon")
-			ExpectRun(kinkOpts.LoadDockerImage(
-				&kindKubeOpts,
-				&chart,
-				&release,
-				wordpressLoadFlags,
-				wordpressImage,
-			).WithStreams(GinkgoOutErr))
+			if !noDeps {
+				wordpressLoadFlags := make([]string, 0, len(c.LoadFlags)+2)
+				wordpressLoadFlags = append(wordpressLoadFlags, c.LoadFlags...)
+				wordpressLoadFlags = append(wordpressLoadFlags, "--parallel-loads", "1")
 
-			By("Loading an image from a docker archive")
+				By("Loading an image from the docker daemon")
+				ExpectRun(kinkOpts.LoadDockerImage(
+					&kindKubeOpts,
+					&chart,
+					&release,
+					wordpressLoadFlags,
+					wordpressImage,
+				).WithStreams(GinkgoOutErr))
 
-			ExpectRun(gosh.Command(docker.Save(&dockerOpts, mariadbImage)...).WithStreams(gosh.FileOut(mariadbTarballPath), GinkgoErr))
-			ExpectRun(kinkOpts.LoadDockerArchive(
-				&kindKubeOpts,
-				&chart,
-				&release,
-				c.LoadFlags,
-				mariadbTarballPath,
-			).WithStreams(GinkgoOutErr))
+				By("Loading an image from a docker archive")
 
-			By("Loading an image from an OCI archive")
+				ExpectRun(gosh.Command(docker.Save(&dockerOpts, mariadbImage)...).WithStreams(gosh.FileOut(mariadbTarballPath), GinkgoErr))
+				ExpectRun(kinkOpts.LoadDockerArchive(
+					&kindKubeOpts,
+					&chart,
+					&release,
+					c.LoadFlags,
+					mariadbTarballPath,
+				).WithStreams(GinkgoOutErr))
 
-			ExpectRun(kinkOpts.LoadOCIArchive(
-				&kindKubeOpts,
-				&chart,
-				&release,
-				c.LoadFlags, memcachedTarballPath,
-			).WithStreams(GinkgoOutErr))
+				By("Loading an image from an OCI archive")
+
+				ExpectRun(kinkOpts.LoadOCIArchive(
+					&kindKubeOpts,
+					&chart,
+					&release,
+					c.LoadFlags, memcachedTarballPath,
+				).WithStreams(GinkgoOutErr))
+			}
 
 			if !c.Controlplane.External {
 				By("Forwarding the controplane port")
@@ -499,7 +588,7 @@ func (c Case) Run() bool {
 			}
 			Eventually(func() error {
 				return gosh.Command(kubectl.Version(&kubectlOpts, &kinkKubeOpts)...).WithStreams(GinkgoOutErr).Run()
-			}, "10s", "1s").Should(Succeed())
+			}, "30s", "1s").Should(Succeed())
 
 			By("Watching pods")
 			podWatch := gosh.
@@ -510,38 +599,63 @@ func (c Case) Run() bool {
 				ExpectStop(podWatch)
 			})
 
-			for _, chart := range c.ExtraCharts {
-				By(fmt.Sprintf("Releasing %s the helm charts", chart.Chart.ChartName))
+			if !noDeps {
+				for _, chart := range c.ExtraCharts {
+					By(fmt.Sprintf("Releasing %s the helm chart", chart.Chart.ChartName))
 
-				ExpectRun(gosh.Command(helm.RepoAdd(&helmOpts, &chart.Chart)...).WithStreams(GinkgoOutErr))
-				ExpectRun(gosh.Command(helm.RepoUpdate(&helmOpts, chart.Chart.RepoName())...).WithStreams(GinkgoOutErr))
-				ExpectRun(gosh.Command(helm.Upgrade(&helmOpts, &chart.Chart, &chart.Release, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
+					ExpectRun(gosh.Command(helm.RepoAdd(&helmOpts, &chart.Chart)...).WithStreams(GinkgoOutErr))
+					ExpectRun(gosh.Command(helm.RepoUpdate(&helmOpts, chart.Chart.RepoName())...).WithStreams(GinkgoOutErr))
+					ExpectRun(gosh.Command(helm.Upgrade(&helmOpts, &chart.Chart, &chart.Release, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
+					if !noCleanup {
+						DeferCleanup(func() {
+							ExpectRun(gosh.Command(helm.Delete(&helmOpts, &chart.Chart, &chart.Release, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
+						})
+					}
+
+					for _, rollout := range chart.Rollouts {
+						ExpectRun(gosh.Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "rollout", "status", rollout)...).WithStreams(GinkgoOutErr))
+					}
+				}
+
+				By("Releasing the main helm chart")
+
+				wordpressChart := helm.ChartFlags{
+					RepositoryURL: wordpressChartRepo,
+					ChartName:     wordpressChartName,
+					Version:       wordpressChartVersion,
+				}
+				wordpressRelease := helm.ReleaseFlags{
+					Name:         "wordpress",
+					UpgradeFlags: []string{"--debug"},
+					Set:          c.Wordpress.Set,
+				}
+				ExpectRun(gosh.Command(helm.RepoAdd(&helmOpts, &wordpressChart)...).WithStreams(GinkgoOutErr))
+				ExpectRun(gosh.Command(helm.RepoUpdate(&helmOpts, wordpressChart.RepoName())...).WithStreams(GinkgoOutErr))
+				ExpectRun(gosh.Command(helm.Upgrade(&helmOpts, &wordpressChart, &wordpressRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
+				ExpectRun(
+					gosh.
+						Command(kubectl.Kubectl(
+							&kubectlOpts,
+							&kinkKubeOpts,
+							"rollout", "status", "deploy/wordpress",
+						)...).
+						WithStreams(GinkgoOutErr),
+				)
+				if !noCleanup {
+					DeferCleanup(func() {
+						ExpectRun(gosh.Command(helm.Delete(&helmOpts, &wordpressChart, &wordpressRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
+					})
+				}
 			}
 
-			By("Releasing the main helm chart")
-
-			wordpressChart := helm.ChartFlags{
-				RepositoryURL: wordpressChartRepo,
-				ChartName:     wordpressChartName,
-				Version:       wordpressChartVersion,
-			}
-			wordpressRelease := helm.ReleaseFlags{
-				Name:         "wordpress",
-				UpgradeFlags: []string{"--debug"},
-				Set:          c.Wordpress.Set,
-			}
-			ExpectRun(gosh.Command(helm.RepoAdd(&helmOpts, &wordpressChart)...).WithStreams(GinkgoOutErr))
-			ExpectRun(gosh.Command(helm.RepoUpdate(&helmOpts, wordpressChart.RepoName())...).WithStreams(GinkgoOutErr))
-			ExpectRun(gosh.Command(helm.Upgrade(&helmOpts, &wordpressChart, &wordpressRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
-
-			By("Interacting with the released service")
+			By("Interacting with the released service over a Port Forward")
 
 			func() {
 				wordpressPortForward := gosh.Command(kubectl.PortForward(&kubectlOpts, &kinkKubeOpts, "svc/wordpress", map[string]string{"8080": "80"})...).WithStreams(GinkgoOutErr)
 				ExpectStart(wordpressPortForward)
 				defer ExpectStop(wordpressPortForward)
 
-				Eventually(func() error { _, err := http.Get("http://localhost:8080"); return err }, "10s", "1s").Should(Succeed())
+				Eventually(func() error { _, err := http.Get("http://localhost:8080"); return err }, "30s", "1s").Should(Succeed())
 			}()
 
 			if c.Wordpress.Ingress.Name == "" {
@@ -557,6 +671,7 @@ func (c Case) Run() bool {
 				),
 			)
 
+			By("Interacting with the released service over the Port Forwarded LoadBalancer (HTTP)")
 			httpPort := int32(0)
 			httpsPort := int32(0)
 			for _, port := range svc.Spec.Ports {
@@ -567,6 +682,8 @@ func (c Case) Run() bool {
 					httpsPort = port.NodePort
 				}
 			}
+			Expect(httpPort).ToNot(Equal(0))
+			Expect(httpsPort).ToNot(Equal(0))
 			func() {
 				kubeOpts := kindKubeOpts
 				kubeOpts.ConfigOverrides.Context.Namespace = c.Name
@@ -577,10 +694,13 @@ func (c Case) Run() bool {
 				defer ExpectStop(portForward)
 				req, err := http.NewRequest("GET", "http://localhost:8080", nil)
 				Expect(err).ToNot(HaveOccurred())
-				req.Header.Set("Host", c.Wordpress.Ingress.Hostname)
+				req.Host = c.Wordpress.Ingress.Hostname
 
-				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "10s", "1s").Should(Succeed())
+				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+				Eventually(func() int { resp, _ := http.DefaultClient.Do(req); return resp.StatusCode }, "30s", "1s").Should(Equal(http.StatusOK))
 			}()
+
+			By("Interacting with the released service over the Port Forwarded LoadBalancer (HTTPS)")
 			func() {
 				kubeOpts := kindKubeOpts
 				kubeOpts.ConfigOverrides.Context.Namespace = c.Name
@@ -592,12 +712,42 @@ func (c Case) Run() bool {
 
 				req, err := http.NewRequest("GET", "https://localhost:8080", nil)
 				Expect(err).ToNot(HaveOccurred())
-				req.Header.Set("Host", c.Wordpress.Ingress.Hostname)
+				req.Host = c.Wordpress.Ingress.Hostname
 				// TODO: Actually set up a cert for this
 				http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "10s", "1s").Should(Succeed())
+				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+				resp, err := http.DefaultClient.Do(req)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			}()
+
+			By("Interacting with the released service over the Ingress'ed LoadBalancer (HTTP)")
+			req, err := http.NewRequest("GET", "http://localhost:80", nil)
+			Expect(err).ToNot(HaveOccurred())
+			req.Host = c.Wordpress.Ingress.Hostname
+			// TODO: Actually set up a cert for this
+			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+			resp, err := http.DefaultClient.Do(req)
+			Expect(err).ToNot(HaveOccurred())
+			if c.Wordpress.Ingress.HTTPSOnly {
+				Expect(resp.StatusCode).To(Equal(http.StatusPermanentRedirect))
+			} else {
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			}
+
+			By("Interacting with the released service over the Ingress'ed LoadBalancer (HTTPS)")
+			req, err = http.NewRequest("GET", "https://localhost:443", nil)
+			Expect(err).ToNot(HaveOccurred())
+			req.Host = c.Wordpress.Ingress.Hostname
+			// TODO: Actually set up a cert for this
+			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+			resp, err = http.DefaultClient.Do(req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
 		})
 
 	})
@@ -629,6 +779,7 @@ var _ = Case{
 			"service.type":               "ClusterIP",
 			"image.pullPolicy":           "Never",
 			"ingress.enabled":            "true",
+			"ingress.ingressClassName":   "nginx",
 			"ingress.hostname":           "wordpress.ingress.local",
 			"mariadb.enabled":            "true",
 			"mariadb.image.pullPolicy":   "Never",
@@ -653,30 +804,13 @@ var _ = Case{
 			Release: helm.ReleaseFlags{
 				Name: "ingress-nginx",
 			},
+			Rollouts: []string{
+				"deploy/ingress-nginx-controller",
+			},
 		},
 	},
 	Controlplane: CaseControlplane{
 		External: true,
-	},
-}.Run()
-
-var _ = Case{
-	Name:      "k3s-single",
-	LoadFlags: []string{"--only-load-workers=false"},
-	Wordpress: CaseWordpress{
-		Set: map[string]string{
-			"persistence.enabled":        "true",
-			"persistence.storageClass":   "shared-local-path",
-			"persistence.accessModes":    "{ReadWriteMany}",
-			"replicaCount":               "1",
-			"mariadb.enabled":            "true",
-			"memcached.enabled":          "true",
-			"service.type":               "ClusterIP",
-			"ingress.enabled":            "true",
-			"image.pullPolicy":           "Never",
-			"mariadb.image.pullPolicy":   "Never",
-			"memcached.image.pullPolicy": "Never",
-		},
 	},
 }.Run()
 
@@ -689,18 +823,93 @@ var _ = Case{
 			"persistence.accessModes":    "{ReadWriteMany}",
 			"replicaCount":               "2",
 			"podAntiAffinityPreset":      "hard",
+			"ingress.enabled":            "true",
+			"ingress.ingressClassName":   "nginx",
+			"ingress.hostname":           "wordpress.ingress.local",
 			"mariadb.enabled":            "true",
 			"memcached.enabled":          "true",
 			"service.type":               "ClusterIP",
-			"ingress.enabled":            "true",
 			"image.pullPolicy":           "Never",
 			"mariadb.image.pullPolicy":   "Never",
 			"memcached.image.pullPolicy": "Never",
 		},
+		Ingress: CaseIngressService{
+			Namespace:     "default",
+			Name:          "ingress-nginx-controller",
+			HTTPPortName:  "http",
+			HTTPSPortName: "https",
+			Hostname:      "wordpress.ingress.local",
+			HTTPSOnly:     true,
+		},
 	},
+	ExtraCharts: []ExtraChart{
+		{
+			Chart: helm.ChartFlags{
+				RepositoryURL: ingressNginxChartRepo,
+				ChartName:     ingressNginxChartName,
+				Version:       ingressNginxChartVersion,
+			},
+			Release: helm.ReleaseFlags{
+				Name: "ingress-nginx",
+			},
+			Rollouts: []string{
+				"deploy/ingress-nginx-controller",
+			},
+		},
+	},
+
 	Controlplane: CaseControlplane{
 		External: true,
 		NodePort: true,
+	},
+}.Run()
+
+var _ = Case{
+	Name:      "k3s-single",
+	LoadFlags: []string{"--only-load-workers=false"},
+	Wordpress: CaseWordpress{
+		Set: map[string]string{
+			"persistence.enabled":        "true",
+			"persistence.storageClass":   "shared-local-path",
+			"persistence.accessModes":    "{ReadWriteMany}",
+			"replicaCount":               "1",
+			"ingress.enabled":            "true",
+			"ingress.ingressClassName":   "nginx",
+			"ingress.hostname":           "wordpress.ingress.local",
+			"mariadb.enabled":            "true",
+			"memcached.enabled":          "true",
+			"service.type":               "ClusterIP",
+			"image.pullPolicy":           "Never",
+			"mariadb.image.pullPolicy":   "Never",
+			"memcached.image.pullPolicy": "Never",
+		},
+		Ingress: CaseIngressService{
+			Namespace:     "default",
+			Name:          "ingress-nginx-controller",
+			HTTPPortName:  "http",
+			HTTPSPortName: "https",
+			Hostname:      "wordpress.ingress.local",
+		},
+	},
+	ExtraCharts: []ExtraChart{
+		{
+			Chart: helm.ChartFlags{
+				RepositoryURL: ingressNginxChartRepo,
+				ChartName:     ingressNginxChartName,
+				Version:       ingressNginxChartVersion,
+			},
+			Release: helm.ReleaseFlags{
+				Name: "ingress-nginx",
+				Set: map[string]string{
+					"controller.kind": "DaemonSet",
+					//"controller.service.type":     "ClusterIP",
+					"controller.hostPort.enabled": "true",
+				},
+			},
+			Rollouts: []string{
+				"ds/ingress-nginx-controller",
+			},
+		},
 	},
 }.Run()
 
@@ -713,13 +922,43 @@ var _ = Case{
 			"persistence.accessModes":    "{ReadWriteMany}",
 			"replicaCount":               "2",
 			"podAntiAffinityPreset":      "hard",
+			"ingress.enabled":            "true",
+			"ingress.ingressClassName":   "nginx",
+			"ingress.hostname":           "wordpress.ingress.local",
 			"mariadb.enabled":            "true",
 			"memcached.enabled":          "true",
 			"service.type":               "ClusterIP",
-			"ingress.enabled":            "true",
 			"image.pullPolicy":           "Never",
 			"mariadb.image.pullPolicy":   "Never",
 			"memcached.image.pullPolicy": "Never",
+		},
+		Ingress: CaseIngressService{
+			Namespace:     "default",
+			Name:          "ingress-nginx-controller",
+			HTTPPortName:  "http",
+			HTTPSPortName: "https",
+			Hostname:      "wordpress.ingress.local",
+			HTTPSOnly:     true,
+		},
+	},
+	ExtraCharts: []ExtraChart{
+		{
+			Chart: helm.ChartFlags{
+				RepositoryURL: ingressNginxChartRepo,
+				ChartName:     ingressNginxChartName,
+				Version:       ingressNginxChartVersion,
+			},
+			Release: helm.ReleaseFlags{
+				Name: "ingress-nginx",
+				Set: map[string]string{
+					"controller.kind": "DaemonSet",
+					//"controller.service.type":     "ClusterIP",
+					"controller.hostPort.enabled": "true",
+				},
+			},
+			Rollouts: []string{
+				"ds/ingress-nginx-controller",
+			},
 		},
 	},
 }.Run()

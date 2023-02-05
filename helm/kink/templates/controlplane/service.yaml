@@ -17,6 +17,25 @@ spec:
       protocol: TCP
       name: {{ $port }}
     {{- end }}
+    {{- if eq .Values.worker.replicaCount 0 }}
+    {{- if .Values.loadBalancer.ingress.enabled }}
+    {{- range .Values.loadBalancer.ingress.classMappings }}
+    {{- with .hostPort }}
+    {{- with .httpPort }}
+    - name: '{{ . }}'
+      port: {{ . }}
+      targetPort: {{ . }}
+    {{- end }}
+    {{- with .httpsPort }}
+    - name: '{{ . }}'
+      port: {{ . }}
+      targetPort: {{ . }}
+    {{- end }}
+      protocol: TCP
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
   selector:
     {{- include "kink.controlplane.selectorLabels" . | nindent 4 }}
 ---
@@ -36,6 +55,25 @@ spec:
       targetPort: {{ $port }}
       protocol: TCP
       name: {{ $port }}
+    {{- end }}
+    {{- if eq .Values.worker.replicaCount 0 }}
+    {{- if .Values.loadBalancer.ingress.enabled }}
+    {{- range .Values.loadBalancer.ingress.classMappings }}
+    {{- with .hostPort }}
+    {{- with .httpPort }}
+    - name: '{{ . }}'
+      port: {{ . }}
+      targetPort: {{ . }}
+    {{- end }}
+    {{- with .httpsPort }}
+    - name: '{{ . }}'
+      port: {{ . }}
+      targetPort: {{ . }}
+    {{- end }}
+      protocol: TCP
+    {{- end }}
+    {{- end }}
+    {{- end }}
     {{- end }}
   selector:
     {{- include "kink.controlplane.selectorLabels" . | nindent 4 }}

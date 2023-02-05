@@ -22,6 +22,18 @@ rules:
   resources: ['leases']
   verbs: ['create']
 {{- end }}
+{{- if .Values.loadBalancer.ingress.enabled }}
+- apiGroups: [networking.k8s.io, extensions]
+  resources: ['ingresses']
+  resourceNames:
+  {{- range .Values.loadBalancer.ingress.classMappings }}
+  - {{ include "kink.load-balancer.fullname" $ }}-{{ .guestClassName }}
+  {{- end }}
+  verbs: [get,watch,update,patch,delete]
+- apiGroups: [networking.k8s.io, extensions]
+  resources: ['ingresses']
+  verbs: ['create']
+{{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

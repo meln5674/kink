@@ -164,24 +164,93 @@ func (b *Bool) UnmarshalJSON(bytes []byte) (err error) {
 	return nil
 }
 
+type LoadBalancerIngressNodePortClassMapping struct {
+	Namespace string  `json:"namespace"`
+	Name      string  `json:"name"`
+	HttpPort  *string `json:"httpPort,omitempty"`
+	HttpsPort *string `json:"httpsPort,omitempty"`
+}
+
+type LoadBalancerIngressHostPortClassMapping struct {
+	HttpPort  *string `json:"httpPort,omitempty"`
+	HttpsPort *string `json:"httpsPort,omitempty"`
+}
+
+type LoadBalancerIngressClassMapping struct {
+	ClassName   string                                   `json:"className"`
+	Annotations map[string]string                        `json:"annotations"`
+	NodePort    *LoadBalancerIngressNodePortClassMapping `json:"nodePort,omitempty"`
+	HostPort    *LoadBalancerIngressHostPortClassMapping `json:"hostPort,omitempty"`
+}
+
+func (l *LoadBalancerIngressClassMapping) Ports() (*string, *string) {
+	if l.NodePort != nil {
+		return l.NodePort.HttpPort, l.NodePort.HttpsPort
+	}
+	if l.HostPort != nil {
+		return l.HostPort.HttpPort, l.HostPort.HttpsPort
+	}
+	return nil, nil
+}
+
+func (l *LoadBalancerIngressClassMapping) Port() (port string, isHttps bool) {
+	httpPort, httpsPort := l.Ports()
+	if httpsPort != nil {
+		return *httpsPort, true
+	}
+	if httpPort != nil {
+		return *httpPort, false
+	}
+	return "", false
+}
+
+type LoadBalancerIngressInner struct {
+	Enabled                bool                                       `json:"enabled"`
+	HostPortTargetFullname string                                     `json:"hostPortTargetFullname"`
+	ClassMappings          map[string]LoadBalancerIngressClassMapping `json:"classMappings"`
+}
+
+type LoadBalancerIngress struct {
+	LoadBalancerIngressInner
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (l *LoadBalancerIngress) UnmarshalJSON(bytes []byte) (err error) {
+	var sJSON string
+	err = json.Unmarshal(bytes, &sJSON)
+	if err != nil {
+		return
+	}
+	x := LoadBalancerIngressInner{}
+	err = json.Unmarshal([]byte(sJSON), &x)
+	if err != nil {
+		return err
+	}
+	*l = LoadBalancerIngress{x}
+	return nil
+}
+
 // ReleaseConfig are the values kept in the helm ConfigMap
 type ReleaseConfig struct {
-	Fullname                   string    `json:"fullname"`
-	ControlplaneFullname       string    `json:"controlplane.fullname"`
-	ControlplanePort           Int       `json:"controlplane.port"`
-	ControlplaneHostname       string    `json:"controlplane.hostname"`
-	ControlplaneIsNodePort     Bool      `json:"controlplane.isNodePort"`
-	LoadBalancerFullname       string    `json:"load-balancer.fullname"`
-	LBManagerFullname          string    `json:"lb-manager.fullname"`
-	Labels                     StringMap `json:"labels"`
-	SelectorLabels             StringMap `json:"selectorLabels"`
-	ControlplaneLabels         StringMap `json:"controlplane.labels"`
-	ControlplaneSelectorLabels StringMap `json:"controlplane.selectorLabels"`
-	WorkerLabels               StringMap `json:"worker.labels"`
-	WorkerSelectorLabels       StringMap `json:"worker.selectorLabels"`
-	LoadBalancerLabels         StringMap `json:"load-balancer.labels"`
-	LoadBalancerAnnotations    StringMap `json:"load-balancer.annotations"`
-	RKE2Enabled                Bool      `json:"rke2.enabled"`
+	Fullname                       string              `json:"fullname"`
+	Labels                         StringMap           `json:"labels"`
+	ControlplaneFullname           string              `json:"controlplane.fullname"`
+	ControlplanePort               Int                 `json:"controlplane.port"`
+	ControlplaneHostname           string              `json:"controlplane.hostname"`
+	ControlplaneIsNodePort         Bool                `json:"controlplane.isNodePort"`
+	ControlplaneLabels             StringMap           `json:"controlplane.labels"`
+	ControlplaneSelectorLabels     StringMap           `json:"controlplane.selectorLabels"`
+	SelectorLabels                 StringMap           `json:"selectorLabels"`
+	WorkerFullname                 string              `json:"worker.fullname"`
+	WorkerLabels                   StringMap           `json:"worker.labels"`
+	WorkerSelectorLabels           StringMap           `json:"worker.selectorLabels"`
+	LoadBalancerFullname           string              `json:"load-balancer.fullname"`
+	LoadBalancerLabels             StringMap           `json:"load-balancer.labels"`
+	LoadBalancerSelectorLabels     StringMap           `json:"load-balancer.selectorLabels"`
+	LoadBalancerServiceAnnotations StringMap           `json:"load-balancer.service.annotations"`
+	LoadBalancerIngress            LoadBalancerIngress `json:"load-balancer.ingress"`
+	LBManagerFullname              string              `json:"lb-manager.fullname"`
+	RKE2Enabled                    Bool                `json:"rke2.enabled"`
 }
 
 func loadMap(path string) (map[string]string, error) {

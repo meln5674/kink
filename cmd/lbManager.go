@@ -13,17 +13,20 @@ import (
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	netv1client "k8s.io/client-go/kubernetes/typed/networking/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog/v2"
 
+	cfg "github.com/meln5674/kink/pkg/config"
 	"github.com/meln5674/kink/pkg/kubectl"
 )
 
@@ -36,6 +39,11 @@ var (
 	lbSvcLeaderElectionRetry    time.Duration
 
 	lbServiceCreated bool
+)
+
+const (
+	IngressClassNameAnnotation = "kubernetes.io/ingress.class"
+	GuestClassLabel            = "kink.meln5674.github.com/guest-ingress-class"
 )
 
 // lbManagerCmd represents the lbManager command
@@ -74,26 +82,6 @@ type services will also have their ingress IPs set to this service IP.
 
 			guestInformer := informers.NewSharedInformerFactory(guestClient, 5*time.Minute)
 
-			handler := ServiceEventHandler{
-				Host:  hostClient.CoreV1(),
-				Guest: guestClient.CoreV1(),
-				Ctx:   ctx,
-				Target: corev1.Service{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:        releaseConfig.LoadBalancerFullname,
-						Namespace:   releaseNamespace,
-						Labels:      releaseConfig.LoadBalancerLabels,
-						Annotations: releaseConfig.LoadBalancerAnnotations,
-					},
-					Spec: corev1.ServiceSpec{
-						Type:     corev1.ServiceTypeClusterIP, // TODO: Should this be configurable?
-						Ports:    make([]corev1.ServicePort, 0),
-						Selector: releaseConfig.WorkerSelectorLabels,
-					},
-				},
-				NodePorts: make(map[int32]corev1.ServicePort),
-			}
-
 			if lbSvcLeaderElectionEnabled {
 				leaderChan := make(chan struct{})
 				leaderLock, err := resourcelock.NewFromKubeconfig(
@@ -109,7 +97,7 @@ type services will also have their ingress IPs set to this service IP.
 				}
 				elector, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
 					Lock:          leaderLock,
-					Name:          handler.Target.Name,
+					Name:          releaseConfig.LoadBalancerFullname,
 					LeaseDuration: lbSvcLeaderElectionLease,
 					RenewDeadline: lbSvcLeaderElectionRenew,
 					RetryPeriod:   lbSvcLeaderElectionRetry,
@@ -133,17 +121,71 @@ type services will also have their ingress IPs set to this service IP.
 				_ = <-leaderChan
 			}
 
-			err = handler.InitNodePorts()
+			svcHandler := ServiceEventHandler{
+				Host:  hostClient.CoreV1(),
+				Guest: guestClient.CoreV1(),
+				Ctx:   ctx,
+				Target: corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        releaseConfig.LoadBalancerFullname,
+						Namespace:   releaseNamespace,
+						Labels:      releaseConfig.LoadBalancerLabels,
+						Annotations: releaseConfig.LoadBalancerServiceAnnotations,
+					},
+					Spec: corev1.ServiceSpec{
+						Type:     corev1.ServiceTypeClusterIP, // TODO: Should this be configurable?
+						Ports:    make([]corev1.ServicePort, 0),
+						Selector: releaseConfig.LoadBalancerSelectorLabels,
+					},
+				},
+				NodePorts: make(map[int32]corev1.ServicePort),
+			}
+
+			err = svcHandler.InitNodePorts()
 			if err != nil {
 				return err
 			}
-			err = handler.CreateOrUpdateHostLB()
+			err = svcHandler.CreateOrUpdateHostLB()
 			if err != nil {
 				return err
 			}
 
-			guestInformer.Core().V1().Services().Informer().AddEventHandler(&handler)
+			guestInformer.Core().V1().Services().Informer().AddEventHandler(&svcHandler)
 			klog.Info("Starting guest cluster service watch")
+
+			if releaseConfig.LoadBalancerIngress.Enabled {
+				ingHandler := IngressEventHandler{
+					HostSvc:  hostClient.CoreV1(),
+					GuestSvc: guestClient.CoreV1(),
+					HostIng:  hostClient.NetworkingV1(),
+					GuestIng: guestClient.NetworkingV1(),
+					Ctx:      ctx,
+					Targets:  make(map[string]netv1.Ingress, len(releaseConfig.LoadBalancerIngress.ClassMappings)),
+					Paths:    make(map[string]map[string]map[HashableHTTPIngressPath]netv1.HTTPIngressPath, len(releaseConfig.LoadBalancerIngress.ClassMappings)),
+				}
+				for class, mapping := range releaseConfig.LoadBalancerIngress.ClassMappings {
+					ingHandler.Targets[class] = netv1.Ingress{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:        fmt.Sprintf("%s-%s", releaseConfig.LoadBalancerFullname, class),
+							Namespace:   releaseNamespace,
+							Labels:      make(map[string]string, len(releaseConfig.LoadBalancerLabels)+1),
+							Annotations: mapping.Annotations,
+						},
+						Spec: netv1.IngressSpec{
+							IngressClassName: new(string),
+						},
+					}
+					for k, v := range releaseConfig.LoadBalancerLabels {
+						ingHandler.Targets[class].Labels[k] = v
+					}
+					ingHandler.Targets[class].Labels[GuestClassLabel] = class
+					*ingHandler.Targets[class].Spec.IngressClassName = mapping.ClassName
+					ingHandler.Paths[class] = make(map[string]map[HashableHTTPIngressPath]netv1.HTTPIngressPath)
+				}
+
+				guestInformer.Networking().V1().Ingresses().Informer().AddEventHandler(&ingHandler)
+				klog.Info("Starting guest cluster ingress watch")
+			}
 			guestInformer.Start(ctx.Done())
 
 			sigChan := make(chan os.Signal, 2)
@@ -223,6 +265,9 @@ type ServiceEventHandler struct {
 }
 
 func (s *ServiceEventHandler) SetPorts() {
+	s.Target.Labels = releaseConfig.LoadBalancerLabels
+	s.Target.Annotations = releaseConfig.LoadBalancerServiceAnnotations
+	s.Target.Spec.Selector = releaseConfig.LoadBalancerSelectorLabels
 	ports := make([]corev1.ServicePort, 0, len(s.NodePorts))
 	for _, port := range s.NodePorts {
 		ports = append(ports, port)
@@ -270,8 +315,6 @@ func (s *ServiceEventHandler) InitNodePorts() error {
 }
 
 func (s *ServiceEventHandler) CreateOrUpdateHostLB() error {
-	klog.Infof("Generated Service: %#v", s.Target)
-
 	svc, err := s.Host.Services(s.Target.Namespace).Get(s.Ctx, s.Target.Name, metav1.GetOptions{})
 	if kerrors.IsNotFound(err) {
 		s.SetPorts()
@@ -320,9 +363,10 @@ func (s *ServiceEventHandler) OnAdd(obj interface{}) {
 	}
 
 	if !(svc.Spec.Type == corev1.ServiceTypeNodePort || svc.Spec.Type == corev1.ServiceTypeLoadBalancer) {
+		klog.V(1).Info("Ignoring %s guest service", svc.Spec.Type)
 		return
 	}
-	klog.Info("Got new guest service %s", objString(obj))
+	klog.Info("Got new guest service", objString(obj))
 
 	s.AddPortsFor(svc)
 
@@ -333,7 +377,7 @@ func (s *ServiceEventHandler) OnAdd(obj interface{}) {
 	}
 
 	if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
-		klog.Info("Ignoring %s guest service", svc.Spec.Type)
+		klog.V(1).Info("Not setting LB ingress IP for %s guest service", svc.Spec.Type)
 		return
 	}
 
@@ -366,7 +410,7 @@ func (s *ServiceEventHandler) OnUpdate(oldObj, newObj interface{}) {
 		return
 	}
 
-	klog.Info("Got updated guest service %s", objString(newObj))
+	klog.Info("Got updated guest service ", objString(newObj))
 
 	if oldSvc.Spec.Type == corev1.ServiceTypeNodePort || oldSvc.Spec.Type == corev1.ServiceTypeLoadBalancer {
 		s.RemovePortsFor(oldSvc)
@@ -401,6 +445,7 @@ func (s *ServiceEventHandler) OnDelete(obj interface{}) {
 		klog.Warning("Got unexpected guest resource %s", objString(obj))
 		return
 	}
+	klog.Info("Got deleted guest service %s", objString(obj))
 
 	s.RemovePortsFor(svc)
 
@@ -409,4 +454,327 @@ func (s *ServiceEventHandler) OnDelete(obj interface{}) {
 		klog.Error(err)
 		return
 	}
+}
+
+// Same fields as netv1.HTTPIngressPath, but fixes them not hashing to the same even when the fields are the same due to pointers
+type HashableHTTPIngressPath struct {
+	Path                     string
+	PathType                 netv1.PathType
+	BackendServiceName       string
+	BackendServicePortNumber int32
+	BackendServicePortName   string
+}
+
+func ToHashable(path *netv1.HTTPIngressPath) HashableHTTPIngressPath {
+	hashable := HashableHTTPIngressPath{
+		Path: path.Path,
+	}
+	if path.PathType != nil {
+		hashable.PathType = *path.PathType
+	}
+	if path.Backend.Service != nil {
+		hashable.BackendServiceName = path.Backend.Service.Name
+		hashable.BackendServicePortNumber = path.Backend.Service.Port.Number
+		hashable.BackendServicePortName = path.Backend.Service.Port.Name
+	}
+	return hashable
+}
+
+type IngressEventHandler struct {
+	HostSvc  corev1client.ServicesGetter
+	GuestSvc corev1client.ServicesGetter
+	HostIng  netv1client.IngressesGetter
+	GuestIng netv1client.IngressesGetter
+	Ctx      context.Context
+	Targets  map[string]netv1.Ingress
+	Paths    map[string]map[string]map[HashableHTTPIngressPath]netv1.HTTPIngressPath
+}
+
+func GetClassName(ing *netv1.Ingress) (string, bool) {
+	if ing.Spec.IngressClassName != nil && *ing.Spec.IngressClassName != "" {
+		return *ing.Spec.IngressClassName, true
+	}
+	if ingressClassName, ok := ing.Annotations[IngressClassNameAnnotation]; ok {
+		return ingressClassName, true
+	}
+	return "", false
+}
+
+func (i *IngressEventHandler) AddPathsFor(guestClass string, ing *netv1.Ingress) error {
+	for _, rule := range ing.Spec.Rules {
+		if rule.HTTP == nil {
+			continue
+		}
+		pathset, ok := i.Paths[guestClass][rule.Host]
+		if !ok {
+			pathset = make(map[HashableHTTPIngressPath]netv1.HTTPIngressPath)
+			i.Paths[guestClass][rule.Host] = pathset
+		}
+		for _, path := range rule.HTTP.Paths {
+			pathset[ToHashable(&path)] = path
+		}
+	}
+	return nil
+}
+
+func (i *IngressEventHandler) RemovePathsFor(guestClass string, ing *netv1.Ingress) error {
+	for _, rule := range ing.Spec.Rules {
+		if rule.HTTP == nil {
+			continue
+		}
+		pathset, ok := i.Paths[guestClass][rule.Host]
+		if !ok {
+			continue
+		}
+		for _, path := range rule.HTTP.Paths {
+			delete(pathset, ToHashable(&path))
+		}
+		if len(pathset) == 0 {
+			delete(i.Paths[guestClass], rule.Host)
+		}
+	}
+	return nil
+}
+
+func (i *IngressEventHandler) SetRules(guestClass string, mappedClass *cfg.LoadBalancerIngressClassMapping, target *netv1.Ingress) error {
+	target.Annotations = mappedClass.Annotations
+	target.Labels = make(map[string]string, len(releaseConfig.LoadBalancerLabels)+1)
+	for k, v := range releaseConfig.LoadBalancerLabels {
+		target.Labels[k] = v
+	}
+	target.Labels[GuestClassLabel] = guestClass
+	target.Spec.Rules = make([]netv1.IngressRule, 0, len(i.Paths[guestClass]))
+	portStr, isHttps := mappedClass.Port()
+	if isHttps {
+		target.Spec.TLS = make([]netv1.IngressTLS, 0, len(i.Paths[guestClass]))
+	}
+	port := intstr.Parse(portStr)
+	var backend netv1.IngressBackend
+	if mappedClass.NodePort != nil {
+		svc, err := i.GuestSvc.Services(mappedClass.NodePort.Namespace).Get(i.Ctx, mappedClass.NodePort.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		backend = netv1.IngressBackend{
+			Service: &netv1.IngressServiceBackend{
+				Name: releaseConfig.LoadBalancerFullname,
+			},
+		}
+		for _, svcPort := range svc.Spec.Ports {
+			if (port.Type == intstr.String && svcPort.Name == port.StrVal) || (port.Type == intstr.Int && svcPort.Port == port.IntVal) {
+				if svcPort.NodePort == 0 {
+					klog.Warningf("Guest NodePort service %s/%s for guest class %s does not have a node port set yet, ignoring", svc.Namespace, svc.Name, guestClass)
+					return nil
+				}
+				backend.Service.Port.Number = svcPort.NodePort
+				break
+			}
+		}
+		if backend.Service.Port.Number == 0 {
+			return fmt.Errorf("Guest NodePort service %s/%s for guest class %s does not have a port named/numbered %s", svc.Namespace, svc.Name, guestClass, portStr)
+		}
+	} else if mappedClass.HostPort != nil {
+		backend = netv1.IngressBackend{
+			Service: &netv1.IngressServiceBackend{
+				Name: releaseConfig.LoadBalancerIngress.HostPortTargetFullname,
+			},
+		}
+		if port.Type == intstr.String {
+			backend.Service.Port.Name = port.StrVal
+		}
+		if port.Type == intstr.Int {
+			backend.Service.Port.Number = port.IntVal
+		}
+	} else {
+		return fmt.Errorf("Guest class %s has neither hostPort nor nodePort set", guestClass)
+	}
+
+	for hostname, paths := range i.Paths[guestClass] {
+		if len(paths) == 0 {
+			continue
+		}
+		rule := netv1.IngressRule{
+			Host: hostname,
+			IngressRuleValue: netv1.IngressRuleValue{
+				HTTP: &netv1.HTTPIngressRuleValue{
+					Paths: make([]netv1.HTTPIngressPath, 0, len(paths)),
+				},
+			},
+		}
+
+		for _, path := range paths {
+			path.Backend = backend
+			rule.HTTP.Paths = append(rule.HTTP.Paths, path)
+		}
+
+		target.Spec.Rules = append(target.Spec.Rules, rule)
+
+		if isHttps {
+			target.Spec.TLS = append(target.Spec.TLS, netv1.IngressTLS{
+				Hosts: []string{rule.Host},
+			})
+		}
+	}
+	return nil
+}
+func (i *IngressEventHandler) CreateOrUpdateHostIngress(guestClass string, mappedClass *cfg.LoadBalancerIngressClassMapping, target *netv1.Ingress) error {
+
+	ing, err := i.HostIng.Ingresses(target.Namespace).Get(i.Ctx, target.Name, metav1.GetOptions{})
+	if kerrors.IsNotFound(err) {
+		err = i.SetRules(guestClass, mappedClass, target)
+		if err != nil {
+			return err
+		}
+		klog.Infof("Generated Ingress for guest class %s: %#v", guestClass, target)
+		if len(target.Spec.Rules) == 0 {
+			klog.Info("Not creating ingress with no rules")
+			return nil
+		}
+		ing, err = i.HostIng.Ingresses(target.Namespace).Create(i.Ctx, target, metav1.CreateOptions{})
+		if err != nil {
+			return err
+		}
+		*target = *ing
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	err = i.SetRules(guestClass, mappedClass, target)
+	if err != nil {
+		return err
+	}
+
+	klog.Infof("Generated Ingress for guest class %s: %#v", guestClass, target)
+	if len(target.Spec.Rules) == 0 {
+		klog.Info("Deleting ingress with no rules")
+		err = i.HostIng.Ingresses(target.Namespace).Delete(i.Ctx, target.Name, metav1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	ing, err = i.HostIng.Ingresses(target.Namespace).Update(i.Ctx, target, metav1.UpdateOptions{})
+	if err != nil {
+		return err
+	}
+	*target = *ing
+	return nil
+}
+
+func (i *IngressEventHandler) OnAdd(obj interface{}) {
+	ing, ok := obj.(*netv1.Ingress)
+	if !ok {
+		klog.Warning("Got unexpected guest resource %s", objString(obj))
+		return
+	}
+	klog.Info("Got new guest ingress", objString(obj))
+
+	className, ok := GetClassName(ing)
+	if !ok {
+		klog.Info("Ignoring class-less guest ingress")
+		return
+	}
+	mappedClass, ok := releaseConfig.LoadBalancerIngress.ClassMappings[className]
+	if !ok {
+		klog.Infof("Ignoring guest ingress with unmapped class %s", className)
+		return
+	}
+	i.AddPathsFor(className, ing)
+
+	target := i.Targets[className]
+	err := i.CreateOrUpdateHostIngress(className, &mappedClass, &target)
+	if err != nil {
+		klog.Error(err)
+		return
+	}
+	i.Targets[className] = target
+}
+
+func (i *IngressEventHandler) OnUpdate(oldObj, newObj interface{}) {
+	oldIng, ok := oldObj.(*netv1.Ingress)
+	if !ok {
+		klog.Warning("Got unexpected guest resource %s", objString(oldObj))
+		return
+	}
+	newIng, ok := newObj.(*netv1.Ingress)
+	if !ok {
+		klog.Warning("Got unexpected guest resource %s", objString(newObj))
+		return
+	}
+	klog.Info("Got updated guest ingress ", objString(newObj))
+
+	oldClassName, hadClass := GetClassName(oldIng)
+	var oldMappedClass cfg.LoadBalancerIngressClassMapping
+	var hadKnownClass bool
+	if !hadClass {
+		klog.Info("Not removing paths for previously class-less guest ingress")
+	} else if oldMappedClass, hadKnownClass = releaseConfig.LoadBalancerIngress.ClassMappings[oldClassName]; !ok {
+		klog.Infof("Not removing paths for guest ingress with previously unknown class %s", oldClassName)
+	} else {
+		i.RemovePathsFor(oldClassName, oldIng)
+	}
+
+	newClassName, hasClass := GetClassName(newIng)
+	var newMappedClass cfg.LoadBalancerIngressClassMapping
+	var hasKnownClass bool
+	if !hasClass {
+		klog.Info("Not removing paths for previously class-less guest ingress")
+	} else if newMappedClass, hadKnownClass = releaseConfig.LoadBalancerIngress.ClassMappings[newClassName]; !ok {
+		klog.Infof("Not removing paths for guest ingress with unknown class %s", newClassName)
+	} else {
+		i.AddPathsFor(newClassName, newIng)
+	}
+
+	if hadKnownClass {
+		target := i.Targets[oldClassName]
+		err := i.CreateOrUpdateHostIngress(oldClassName, &oldMappedClass, &target)
+		if err != nil {
+			klog.Error(err)
+			return
+		}
+		i.Targets[oldClassName] = target
+	}
+
+	if (!hadKnownClass && hasKnownClass) || (hadKnownClass && hasKnownClass && oldClassName != newClassName) {
+		target := i.Targets[newClassName]
+		err := i.CreateOrUpdateHostIngress(newClassName, &newMappedClass, &target)
+		if err != nil {
+			klog.Error(err)
+			return
+		}
+		i.Targets[newClassName] = target
+
+	}
+}
+
+func (i *IngressEventHandler) OnDelete(obj interface{}) {
+	ing, ok := obj.(*netv1.Ingress)
+	if !ok {
+		klog.Warning("Got unexpected guest resource %s", objString(obj))
+		return
+	}
+	klog.Info("Got deleted guest ingress %s", objString(obj))
+
+	className, ok := GetClassName(ing)
+	if !ok {
+		klog.Info("Ignoring class-less guest ingress")
+		return
+	}
+	mappedClass, ok := releaseConfig.LoadBalancerIngress.ClassMappings[className]
+	if !ok {
+		klog.Infof("Ingoring guest ingress with unknown class %s", className)
+	}
+
+	i.RemovePathsFor(className, ing)
+
+	target := i.Targets[className]
+	err := i.CreateOrUpdateHostIngress(className, &mappedClass, &target)
+	if err != nil {
+		klog.Error(err)
+		return
+	}
+	i.Targets[className] = target
 }

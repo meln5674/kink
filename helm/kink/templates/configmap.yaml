@@ -1,5 +1,54 @@
+{{- define "kink.load-balancer.ingressYAML" -}}
+enabled: {{ .Values.loadBalancer.ingress.enabled }}
+hostPortTargetFullname: '{{ if eq .Values.worker.replicaCount 0 }}{{ include "kink.controlplane.fullname" . }}{{ else }}{{ include "kink.worker.fullname" . }}{{ end }}'
+classMappings:
+{{- $guestClasses := list }}
+{{- range .Values.loadBalancer.ingress.classMappings }}
+{{- if has .guestClassName $guestClasses }}
+{{- print "Load Balancer Ingress is invalid: The guest class " .guestClass " was specified more than once" | fail }}
+{{- end }}
+{{- $guestClasses = append $guestClasses .guestClassName }}
+  {{ .guestClassName }}:
+    className: {{ .className }}
+    annotations: {{ .annotations | toJson }}
+    {{- if and .nodePort .hostPort }}
+    {{- print "Load Balancer Ingress is invalid: The guest class " .guestClass " has both nodePort and hostPort specified" | fail }}
+    {{- end }}
+    {{- with .nodePort }}
+    nodePort:
+      namespace: {{ .namespace }}
+      name: {{ .name }}
+      {{- if and .httpPort .httpsPort }}
+      {{- print "Load Balancer Ingress is invalid: The guest class " .guestClass " has both httpPort and httpsPort specified" | fail }}
+      {{- end }}
+      {{- with .httpPort }}
+      httpPort: '{{ . }}'
+      {{- end }}
+      {{- with .httpsPort }}
+      httpsPort: '{{ . }}'
+      {{- end }}
+    {{- end }}
+    {{- with .hostPort }}
+    hostPort:
+      {{- if and .httpPort .httpsPort }}
+      {{- print "Load Balancer Ingress is invalid: The guest class " .guestClass " has both httpPort and httpsPort specified" | fail }}
+      {{- end }}
+      {{- with .httpPort }}
+      httpPort: '{{ . }}'
+      {{- end }}
+      {{- with .httpsPort }}
+      httpsPort: '{{ . }}'
+      {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+
+
 {{- define "kink.config" -}}
 fullname: {{ include "kink.fullname" . }}
+labels: '{{ include "kink.labels" . | fromYaml | toJson }}'
+selectorLabels: '{{ include "kink.selectorLabels" . | fromYaml | toJson }}'
+
 controlplane.fullname: {{ include "kink.controlplane.fullname" . }}
 controlplane.port: '{{ .Values.controlplane.service.api.port }}'
 controlplane.hostname: |-
@@ -16,16 +65,21 @@ controlplane.isNodePort: |-
   {{- else }}
   false
   {{- end }}
-load-balancer.fullname: {{ include "kink.load-balancer.fullname" . }}
-lb-manager.fullname: {{ include "kink.lb-manager.fullname" . }}
-labels: '{{ include "kink.labels" . | fromYaml | toJson }}'
-selectorLabels: '{{ include "kink.selectorLabels" . | fromYaml | toJson }}'
 controlplane.labels: '{{ include "kink.controlplane.labels" . | fromYaml | toJson }}'
 controlplane.selectorLabels: '{{ include "kink.controlplane.selectorLabels" . | fromYaml | toJson }}'
+
+worker.fullname: {{ include "kink.worker.fullname" . }}
 worker.labels: '{{ include "kink.worker.labels" . | fromYaml | toJson }}'
 worker.selectorLabels: '{{ include "kink.worker.selectorLabels" . | fromYaml | toJson }}'
+
+load-balancer.fullname: {{ include "kink.load-balancer.fullname" . }}
 load-balancer.labels: '{{ include "kink.load-balancer.labels" . | fromYaml | toJson }}'
-load-balancer.annotations: '{{ .Values.loadBalancer.service.annotations | toJson }}'
+load-balancer.selectorLabels: '{{ if eq .Values.worker.replicaCount 0 }}{{ include "kink.controlplane.selectorLabels" . | fromYaml | toJson }}{{ else }}{{ include "kink.worker.selectorLabels" . | fromYaml | toJson }}{{ end }}'
+load-balancer.service.annotations: '{{ .Values.loadBalancer.service.annotations | toJson }}'
+load-balancer.ingress: '{{ include "kink.load-balancer.ingressYAML" . | fromYaml | toJson }}'
+
+lb-manager.fullname: {{ include "kink.lb-manager.fullname" . }}
+ 
 rke2.enabled: '{{ .Values.rke2.enabled }}'
 {{- end -}}
 

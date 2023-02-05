@@ -20,3 +20,15 @@ release:
     controlplane.extraArgs[0]: '--disable=traefik'
     controlplane.service.type: NodePort
     controlplane.nodeportHost: localhost
+
+    loadBalancer.enabled: 'true'
+    kubeconfig.enabled: 'true'
+    loadBalancer.ingress.enabled: 'true'
+    loadBalancer.ingress.classMappings[0].guestClassName: nginx
+    loadBalancer.ingress.classMappings[0].className: nginx
+    loadBalancer.ingress.classMappings[0].nodePort.namespace: default
+    loadBalancer.ingress.classMappings[0].nodePort.name: ingress-nginx-controller
+    loadBalancer.ingress.classMappings[0].nodePort.httpsPort: https
+    loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
+  setString:
+    loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"

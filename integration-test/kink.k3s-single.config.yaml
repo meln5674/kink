@@ -17,3 +17,12 @@ release:
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
     controlplane.extraArgs[0]: '--disable=traefik'
+
+    loadBalancer.enabled: 'true'
+    kubeconfig.enabled: 'true'
+
+    loadBalancer.ingress.enabled: 'true'
+    loadBalancer.ingress.classMappings[0].guestClassName: nginx
+    loadBalancer.ingress.classMappings[0].className: nginx
+  setString:
+    loadBalancer.ingress.classMappings[0].hostPort.httpPort: '80'
