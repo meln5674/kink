@@ -4,7 +4,7 @@ You've heard of [Kubernetes in Docker (KinD)](https://github.com/kubernetes-sigs
 
 ## What?
 
-Deploy a Kubernetes cluster inside of another Kubernetes cluster, with all of the HA and scalability you would expect.
+Deploy a "guest" Kubernetes cluster inside of another "host" Kubernetes cluster, with all of the HA, scalability, and cluster features you would expect.
 
 Kink is currently made up of two components:
 * A Helm Chart which deploys a nested Cluster
@@ -18,7 +18,7 @@ While it is entirely possible to use a cloud provider like AWS, GCP, or Azure to
 
 ## How?
 
-KinK is based off of [k3s](https://k3s.io/), a super-lightweight Kubernetes distribution, which includes networking, storage, and ingress.
+KinK is based off of [k3s](https://k3s.io/), a super-lightweight Kubernetes distribution, which includes networking, storage, and ingress. KinK also supports using [RKE2](https://docs.rke2.io/), a more "enterprise-ready" version of k3s.
 
 ## Getting Started
 
@@ -139,6 +139,38 @@ If your parent cluster supports ReadWriteMany storage, you can leverage this in 
 ### Legacy IPTables
 
 If your kernel does not support nftables, then you will see errors such as ```Couldn't load match `comment':No such file or directory```, and your cluster will fail to start. You can `--set iptables.useLegacy=true` to resolve this.
+
+### Controlplane Access
+
+There are currently four supported ways of accessing your cluster's controlplane:
+
+#### Port-Forwarding
+
+This is the default method. When exporting your kubeconfig, this will be assumed if the other options are not selected. With this method, it is assumed that you are running a `kubectl port-forward` on your controlplane service with the same port on both local and remote. The `kink port-forward` command will perform this for you, and the `kink exec` and `kink sh` commands will do this in the background before executing your commands.
+
+#### NodePort
+
+If you `--set controlplane.service.type=NodePort`, your controlplane service will be given a NodePort. You must also then `--set controlplane.nodeportHost` to a hostname that will reliably forward all traffic to the matching NodePort on your host cluster. Exporting your kubeconfig with this set will create a new context called `external` with this URL set as the default.
+
+#### Ingress
+
+If you `--set controlplane.ingress.enabled`, as well as the [remaining configuration](helm/kink/values.yaml), then an Ingress resource will be created on the host cluster that will direct traffic to your controllplane. Note that this requires SSL passthrough, which not all ingress controllers support. Exporting your kubeconfig with this set will create a new context called `external` with this URL set as the default.
+
+#### In-Cluster
+
+If you wish to access the guest controlplane from within a pod in the host cluster, `--set kubeconfig.enabled=true`. This will run a job that will wait for the cluster to become ready, then export a kubeconfig set to use the *.svc.cluster.local hostname into a secret in the host cluster. You can then mount this secret into your host cluster pods.
+
+### NodePorts and LoadBalancers
+
+If you wish to wish to access NodePort and LoadBalancer type services within the host cluster, you can do so by directly accessing individual pods, or, if a load-balancer for your LoadBalancers is desirable, `--set loadBalancer.enabled=true` to enable an additional component which will dynamically manage a service that will contain all detected NodePorts (including LoadBalancers).
+
+### Nested Ingress Controllers
+
+If you wish to utilize Ingress resources in your guest cluster through your host cluster's ingress controller, `--set loadBalancer.enabled=true --set loadBalancer.ingress.enabled=true`. This will dynamically create and manage a set of host Ingress resources based on "Class Mappings", which indicate how to get traffic to your guest cluster ingress controller for a given guest cluster ingressClassName. Any number of host and guest ingress controllers and classes are supported. Currently, only ingress controllers which expose themselves as container hostPorts or as NodePort/LoadBalancer services as supported. See [here](helm/kink/values.yaml) for the syntax on defining these mappings. Note that you must pick between your guest ingress controller's HTTP or HTTPS port, you cannot choose both due to how ingresses work. If you choose HTTP, then your host cluster will terminate TLS, which some services may not tolerate. If you choose HTTPS, then your ingress must be set to use SSL passthrough, which your host ingress controller may not support.
+
+### Other Ingress
+
+If you wish to use host cluster Ingresses for traffic other than a guest cluster ingress controller, `--set loadBalancer.ingress.enabled=true` like with a nested ingress controller. Then, instead of defining `classMapping`s, instead use the [static](helm/kink/values.yaml) section. These static ingresses can likewise target a NodePort/LoadBalancer service in the guest cluster, or a container hostPort. This can be used, for example, to route traffic to an Istio Gateway. The same caveats regarding HTTP/HTTPS ports apply as with nested ingress controllers.
 
 ### Air-gapped Clusters
 
