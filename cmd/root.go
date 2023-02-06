@@ -23,6 +23,11 @@ import (
 	"github.com/meln5674/kink/pkg/helm"
 )
 
+const (
+	ClusterConfigEnv = "KINKCONFIG"
+	ClusterNameEnv   = "KINK_CLUSTER_NAME"
+)
+
 var (
 	// configPath is the path to the config file provided as a flag
 	configPath string
@@ -72,7 +77,13 @@ func init() {
 	klog.InitFlags(klogFlags)
 	rootCmd.PersistentFlags().AddGoFlagSet(klogFlags)
 
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to KinK config file to use instead of arguments")
+	kinkconfig := os.Getenv(ClusterConfigEnv)
+	clusterName := os.Getenv(ClusterNameEnv)
+	if clusterName == "" {
+		clusterName = cfg.DefaultClusterName
+	}
+
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", kinkconfig, "Path to KinK config file to use instead of arguments")
 	rootCmd.PersistentFlags().StringVar(&releaseConfigMount, "release-config-mount", "", "Path to where release configmap is mounted. If provided, this will be used instead of fetching from helm")
 
 	rootCmd.PersistentFlags().StringSliceVar(&configOverrides.Helm.Command, "helm-command", []string{"helm"}, "Command to execute for helm")
@@ -82,7 +93,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.ChartName, "chart", "kink", "Name of KinK Helm Chart")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.Version, "chart-version", "", "Version of the chart to install")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.RepositoryURL, "repository-url", "https://meln5674.github.io/kink", "URL of KinK Helm Chart repository")
-	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", cfg.DefaultClusterName, "Name of the kink cluster")
+	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", clusterName, "Name of the kink cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&configOverrides.Release.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")
 	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.Set, "set", map[string]string{}, "Extra field overrides to use when creating cluster")
 	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.SetString, "set-string", map[string]string{}, "Extra field overrides to use when creating cluster, forced interpreted as strings")
@@ -96,7 +107,7 @@ func loadConfig() error {
 	if configPath != "" {
 		err = rawConfig.LoadFromFile(configPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("Configuration file %s is invalid or missing: %s", configPath, err)
 		}
 		config = rawConfig.Format()
 	}
