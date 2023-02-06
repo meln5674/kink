@@ -19,21 +19,7 @@ spec:
     {{- end }}
     {{- if eq .Values.worker.replicaCount 0 }}
     {{- if .Values.loadBalancer.ingress.enabled }}
-    {{- range .Values.loadBalancer.ingress.classMappings }}
-    {{- with .hostPort }}
-    {{- with .httpPort }}
-    - name: '{{ . }}'
-      port: {{ . }}
-      targetPort: {{ . }}
-    {{- end }}
-    {{- with .httpsPort }}
-    - name: '{{ . }}'
-      port: {{ . }}
-      targetPort: {{ . }}
-    {{- end }}
-      protocol: TCP
-    {{- end }}
-    {{- end }}
+    {{- include "kink.load-balancer.ingressHostPorts" . | nindent 4 }}
     {{- end }}
     {{- end }}
   selector:
@@ -58,21 +44,7 @@ spec:
     {{- end }}
     {{- if eq .Values.worker.replicaCount 0 }}
     {{- if .Values.loadBalancer.ingress.enabled }}
-    {{- range .Values.loadBalancer.ingress.classMappings }}
-    {{- with .hostPort }}
-    {{- with .httpPort }}
-    - name: '{{ . }}'
-      port: {{ . }}
-      targetPort: {{ . }}
-    {{- end }}
-    {{- with .httpsPort }}
-    - name: '{{ . }}'
-      port: {{ . }}
-      targetPort: {{ . }}
-    {{- end }}
-      protocol: TCP
-    {{- end }}
-    {{- end }}
+    {{- include "kink.load-balancer.ingressHostPorts" . | nindent 4 }}
     {{- end }}
     {{- end }}
   selector:

@@ -1,4 +1,7 @@
 {{- if .Values.loadBalancer.enabled }}
+{{- if not .Values.kubeconfig.enabled }}
+{{- fail "The LoadBalancer manager requires exporting the in-cluster kubeconfig. Please --set kubeconfig.enabled=true" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -37,12 +37,16 @@ var (
 	// These 4 are used when debugging interactively. They should be set to false in the actual repo
 	noCleanup = false
 	noCreate  = false
+	noPull    = false
+	noLoad    = false
 	noDeps    = false
 	noRebuild = false
 
-	imageRepo  string
-	imageTag   string
-	builtImage string
+	imageRepo    string
+	imageTag     string
+	defaultTag   = "it"
+	defaultImage string
+	builtImage   string
 
 	kindConfigPath     = "../integration-test/kind.config.yaml"
 	kindKubeconfigPath = "../integration-test/kind.kubeconfig"
@@ -101,7 +105,7 @@ var _ = BeforeSuite(func() {
 	}
 
 	BuildImage()
-	if !noDeps {
+	if !noPull {
 		FetchWordpressImages()
 	}
 	InitKindCluster()
@@ -164,12 +168,14 @@ func DeferExpectStop(cmd gosh.Commander) {
 
 func BuildImage() {
 	imageRepo = "local.host/meln5674/kink"
+	defaultImage = fmt.Sprintf("%s:%s", imageRepo, defaultTag)
 	if noRebuild {
-		imageTag = "it"
+		imageTag = defaultTag
+		builtImage = defaultImage
 	} else {
 		imageTag = fmt.Sprintf("%d", time.Now().Unix())
+		builtImage = fmt.Sprintf("%s:%s", imageRepo, imageTag)
 	}
-	builtImage = fmt.Sprintf("%s:%s", imageRepo, imageTag)
 
 	if !noRebuild {
 		ExpectRun(
@@ -260,7 +266,7 @@ func InitKindCluster() {
 	})
 
 	if !noRebuild {
-		ExpectRun(kindOpts.LoadImages(builtImage))
+		ExpectRun(kindOpts.LoadImages(builtImage, defaultImage))
 	}
 
 	if !noDeps {
@@ -418,12 +424,13 @@ type ExtraChart struct {
 }
 
 type CaseIngressService struct {
-	Namespace     string
-	Name          string
-	HTTPPortName  string
-	HTTPSPortName string
-	Hostname      string
-	HTTPSOnly     bool
+	Namespace      string
+	Name           string
+	HTTPPortName   string
+	HTTPSPortName  string
+	Hostname       string
+	StaticHostname string
+	HTTPSOnly      bool
 }
 
 type CaseControlplane struct {
@@ -539,7 +546,7 @@ func (c Case) Run() bool {
 				`,
 			).WithStreams(GinkgoOutErr))
 
-			if !noDeps {
+			if !noDeps || !noLoad {
 				wordpressLoadFlags := make([]string, 0, len(c.LoadFlags)+2)
 				wordpressLoadFlags = append(wordpressLoadFlags, c.LoadFlags...)
 				wordpressLoadFlags = append(wordpressLoadFlags, "--parallel-loads", "1")
@@ -626,27 +633,51 @@ func (c Case) Run() bool {
 				}
 				wordpressRelease := helm.ReleaseFlags{
 					Name:         "wordpress",
-					UpgradeFlags: []string{"--debug"},
+					UpgradeFlags: []string{"--debug", "--timeout=15m"},
 					Set:          c.Wordpress.Set,
 				}
 				ExpectRun(gosh.Command(helm.RepoAdd(&helmOpts, &wordpressChart)...).WithStreams(GinkgoOutErr))
 				ExpectRun(gosh.Command(helm.RepoUpdate(&helmOpts, wordpressChart.RepoName())...).WithStreams(GinkgoOutErr))
 				ExpectRun(gosh.Command(helm.Upgrade(&helmOpts, &wordpressChart, &wordpressRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
-				ExpectRun(
-					gosh.
-						Command(kubectl.Kubectl(
-							&kubectlOpts,
-							&kinkKubeOpts,
-							"rollout", "status", "deploy/wordpress",
-						)...).
-						WithStreams(GinkgoOutErr),
-				)
+				ExpectRun(gosh.Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "patch", "deploy/wordpress", "-p", `{
+							"spec": {
+								"template": {
+									"spec": {
+										"containers": [
+											{
+												"name": "wordpress",
+												"ports": [
+													{
+														"containerPort": 8080,
+														"hostPort": 9080
+													},
+													{
+														"containerPort": 8443,
+														"hostPort": 9443
+													}
+												]
+											}
+										]
+									}
+								}
+							}
+						}`)...).WithStreams(GinkgoOutErr))
+
 				if !noCleanup {
 					DeferCleanup(func() {
 						ExpectRun(gosh.Command(helm.Delete(&helmOpts, &wordpressChart, &wordpressRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
 					})
 				}
 			}
+			ExpectRun(
+				gosh.
+					Command(kubectl.Kubectl(
+						&kubectlOpts,
+						&kinkKubeOpts,
+						"rollout", "status", "deploy/wordpress",
+					)...).
+					WithStreams(GinkgoOutErr),
+			)
 
 			By("Interacting with the released service over a Port Forward")
 
@@ -722,6 +753,30 @@ func (c Case) Run() bool {
 
 			}()
 
+			if c.Wordpress.Ingress.StaticHostname != "" {
+				By("Interacting with the released service over a static ingress (HTTP)")
+				req, err := http.NewRequest("GET", "http://localhost:80", nil)
+				Expect(err).ToNot(HaveOccurred())
+				req.Host = c.Wordpress.Ingress.StaticHostname
+				// TODO: Actually set up a cert for this
+				http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+				resp, err := http.DefaultClient.Do(req)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+				By("Interacting with the released service over a static ingress (HTTPS)")
+				req, err = http.NewRequest("GET", "https://localhost:443", nil)
+				Expect(err).ToNot(HaveOccurred())
+				req.Host = c.Wordpress.Ingress.StaticHostname
+				// TODO: Actually set up a cert for this
+				http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+				resp, err = http.DefaultClient.Do(req)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			}
+
 			By("Interacting with the released service over the Ingress'ed LoadBalancer (HTTP)")
 			req, err := http.NewRequest("GET", "http://localhost:80", nil)
 			Expect(err).ToNot(HaveOccurred())
@@ -771,27 +826,29 @@ var _ = Case{
 	Name: "k3s",
 	Wordpress: CaseWordpress{
 		Set: map[string]string{
-			"persistence.enabled":        "true",
-			"persistence.storageClass":   "shared-local-path",
-			"persistence.accessModes":    "{ReadWriteMany}",
-			"replicaCount":               "2",
-			"podAntiAffinityPreset":      "hard",
-			"service.type":               "ClusterIP",
-			"image.pullPolicy":           "Never",
-			"ingress.enabled":            "true",
-			"ingress.ingressClassName":   "nginx",
-			"ingress.hostname":           "wordpress.ingress.local",
-			"mariadb.enabled":            "true",
-			"mariadb.image.pullPolicy":   "Never",
-			"memcached.enabled":          "true",
-			"memcached.image.pullPolicy": "Never",
+			"persistence.enabled":                         "true",
+			"persistence.storageClass":                    "shared-local-path",
+			"persistence.accessModes":                     "{ReadWriteMany}",
+			"replicaCount":                                "2",
+			"podAntiAffinityPreset":                       "hard",
+			"image.pullPolicy":                            "Never",
+			"ingress.enabled":                             "true",
+			"ingress.ingressClassName":                    "nginx",
+			"ingress.hostname":                            "wordpress.ingress.local",
+			"mariadb.enabled":                             "true",
+			"mariadb.image.pullPolicy":                    "Never",
+			"memcached.enabled":                           "true",
+			"memcached.image.pullPolicy":                  "Never",
+			"updateStrategy.rollingUpdate.maxSurge":       "0",
+			"updateStrategy.rollingUpdate.maxUnavailable": "1",
 		},
 		Ingress: CaseIngressService{
-			Namespace:     "default",
-			Name:          "ingress-nginx-controller",
-			HTTPPortName:  "http",
-			HTTPSPortName: "https",
-			Hostname:      "wordpress.ingress.local",
+			Namespace:      "default",
+			Name:           "ingress-nginx-controller",
+			HTTPPortName:   "http",
+			HTTPSPortName:  "https",
+			Hostname:       "wordpress.ingress.local",
+			StaticHostname: "wordpress.ingress.outer",
 		},
 	},
 	ExtraCharts: []ExtraChart{
@@ -818,28 +875,30 @@ var _ = Case{
 	Name: "k3s-ha",
 	Wordpress: CaseWordpress{
 		Set: map[string]string{
-			"persistence.enabled":        "true",
-			"persistence.storageClass":   "shared-local-path",
-			"persistence.accessModes":    "{ReadWriteMany}",
-			"replicaCount":               "2",
-			"podAntiAffinityPreset":      "hard",
-			"ingress.enabled":            "true",
-			"ingress.ingressClassName":   "nginx",
-			"ingress.hostname":           "wordpress.ingress.local",
-			"mariadb.enabled":            "true",
-			"memcached.enabled":          "true",
-			"service.type":               "ClusterIP",
-			"image.pullPolicy":           "Never",
-			"mariadb.image.pullPolicy":   "Never",
-			"memcached.image.pullPolicy": "Never",
+			"persistence.enabled":                         "true",
+			"persistence.storageClass":                    "shared-local-path",
+			"persistence.accessModes":                     "{ReadWriteMany}",
+			"replicaCount":                                "2",
+			"podAntiAffinityPreset":                       "hard",
+			"ingress.enabled":                             "true",
+			"ingress.ingressClassName":                    "nginx",
+			"ingress.hostname":                            "wordpress.ingress.local",
+			"mariadb.enabled":                             "true",
+			"memcached.enabled":                           "true",
+			"image.pullPolicy":                            "Never",
+			"mariadb.image.pullPolicy":                    "Never",
+			"memcached.image.pullPolicy":                  "Never",
+			"updateStrategy.rollingUpdate.maxSurge":       "0",
+			"updateStrategy.rollingUpdate.maxUnavailable": "1",
 		},
 		Ingress: CaseIngressService{
-			Namespace:     "default",
-			Name:          "ingress-nginx-controller",
-			HTTPPortName:  "http",
-			HTTPSPortName: "https",
-			Hostname:      "wordpress.ingress.local",
-			HTTPSOnly:     true,
+			Namespace:      "default",
+			Name:           "ingress-nginx-controller",
+			HTTPPortName:   "http",
+			HTTPSPortName:  "https",
+			Hostname:       "wordpress.ingress.local",
+			StaticHostname: "wordpress.ingress.outer",
+			HTTPSOnly:      true,
 		},
 	},
 	ExtraCharts: []ExtraChart{
@@ -869,26 +928,29 @@ var _ = Case{
 	LoadFlags: []string{"--only-load-workers=false"},
 	Wordpress: CaseWordpress{
 		Set: map[string]string{
-			"persistence.enabled":        "true",
-			"persistence.storageClass":   "shared-local-path",
-			"persistence.accessModes":    "{ReadWriteMany}",
-			"replicaCount":               "1",
-			"ingress.enabled":            "true",
-			"ingress.ingressClassName":   "nginx",
-			"ingress.hostname":           "wordpress.ingress.local",
-			"mariadb.enabled":            "true",
-			"memcached.enabled":          "true",
-			"service.type":               "ClusterIP",
-			"image.pullPolicy":           "Never",
-			"mariadb.image.pullPolicy":   "Never",
-			"memcached.image.pullPolicy": "Never",
+			"persistence.enabled":          "true",
+			"persistence.storageClass":     "shared-local-path",
+			"persistence.accessModes":      "{ReadWriteMany}",
+			"replicaCount":                 "1",
+			"ingress.enabled":              "true",
+			"ingress.ingressClassName":     "nginx",
+			"ingress.hostname":             "wordpress.ingress.local",
+			"mariadb.enabled":              "true",
+			"memcached.enabled":            "true",
+			"service.type":                 "ClusterIP",
+			"image.pullPolicy":             "Never",
+			"mariadb.image.pullPolicy":     "Never",
+			"memcached.image.pullPolicy":   "Never",
+			"updateStrategy.type":          "Recreate",
+			"updateStrategy.rollingUpdate": "null",
 		},
 		Ingress: CaseIngressService{
-			Namespace:     "default",
-			Name:          "ingress-nginx-controller",
-			HTTPPortName:  "http",
-			HTTPSPortName: "https",
-			Hostname:      "wordpress.ingress.local",
+			Namespace:      "default",
+			Name:           "ingress-nginx-controller",
+			HTTPPortName:   "http",
+			HTTPSPortName:  "https",
+			Hostname:       "wordpress.ingress.local",
+			StaticHostname: "wordpress.ingress.outer",
 		},
 	},
 	ExtraCharts: []ExtraChart{
@@ -917,28 +979,31 @@ var _ = Case{
 	Name: "rke2",
 	Wordpress: CaseWordpress{
 		Set: map[string]string{
-			"persistence.enabled":        "true",
-			"persistence.storageClass":   "shared-local-path",
-			"persistence.accessModes":    "{ReadWriteMany}",
-			"replicaCount":               "2",
-			"podAntiAffinityPreset":      "hard",
-			"ingress.enabled":            "true",
-			"ingress.ingressClassName":   "nginx",
-			"ingress.hostname":           "wordpress.ingress.local",
-			"mariadb.enabled":            "true",
-			"memcached.enabled":          "true",
-			"service.type":               "ClusterIP",
-			"image.pullPolicy":           "Never",
-			"mariadb.image.pullPolicy":   "Never",
-			"memcached.image.pullPolicy": "Never",
+			"persistence.enabled":                         "true",
+			"persistence.storageClass":                    "shared-local-path",
+			"persistence.accessModes":                     "{ReadWriteMany}",
+			"replicaCount":                                "2",
+			"podAntiAffinityPreset":                       "hard",
+			"ingress.enabled":                             "true",
+			"ingress.ingressClassName":                    "nginx",
+			"ingress.hostname":                            "wordpress.ingress.local",
+			"mariadb.enabled":                             "true",
+			"memcached.enabled":                           "true",
+			"service.type":                                "ClusterIP",
+			"image.pullPolicy":                            "Never",
+			"mariadb.image.pullPolicy":                    "Never",
+			"memcached.image.pullPolicy":                  "Never",
+			"updateStrategy.rollingUpdate.maxSurge":       "0",
+			"updateStrategy.rollingUpdate.maxUnavailable": "1",
 		},
 		Ingress: CaseIngressService{
-			Namespace:     "default",
-			Name:          "ingress-nginx-controller",
-			HTTPPortName:  "http",
-			HTTPSPortName: "https",
-			Hostname:      "wordpress.ingress.local",
-			HTTPSOnly:     true,
+			Namespace:      "default",
+			Name:           "ingress-nginx-controller",
+			HTTPPortName:   "http",
+			HTTPSPortName:  "https",
+			Hostname:       "wordpress.ingress.local",
+			StaticHostname: "wordpress.ingress.outer",
+			HTTPSOnly:      true,
 		},
 	},
 	ExtraCharts: []ExtraChart{

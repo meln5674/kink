@@ -6,8 +6,10 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"hash/adler32"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -286,7 +288,7 @@ func (s *ServiceEventHandler) SetPorts() {
 
 func (s *ServiceEventHandler) AddPortsFor(svc *corev1.Service) {
 	for _, port := range svc.Spec.Ports {
-		s.NodePorts[port.NodePort] = ConvertPort(&port)
+		s.NodePorts[port.NodePort] = ConvertPort(svc.Namespace, svc.Name, &port)
 	}
 }
 
@@ -388,9 +390,31 @@ func (s *ServiceEventHandler) OnAdd(obj interface{}) {
 	}
 }
 
-func ConvertPort(port *corev1.ServicePort) corev1.ServicePort {
+// PortName produces a predictable port name from a guest service.
+// This is done in a way that can be matched in the helm chart, allowing us to create
+// static ingresses for guest NodePort services without knowing their assigned nodeports
+// ahead of time, and without imposing further name length restrictions.
+// This works by taking a 32-bit checksum of the "namespace/name/portname" of the port,
+// then formatting as hex, padding to a max of 8 characters with a prefix
+func PortName(namespace, name string, port *corev1.ServicePort) string {
+	// TODO: Have some way of adding a nonce if somehow there is a has collision
+	var toSum string
+	if port.Name == "" {
+		toSum = fmt.Sprintf("%s/%s/%d", namespace, name, port.Port)
+	} else {
+		toSum = fmt.Sprintf("%s/%s/%s", namespace, name, port.Name)
+	}
+	// This may seem redundant, but we need to match the behavior of the helm chart exactly
+	x, err := strconv.Atoi(fmt.Sprintf("%d", adler32.Checksum([]byte(toSum))))
+	if err != nil {
+		panic(fmt.Sprintf("BUG: Failed to produce PortName, this shouldn't be possible: %s", err))
+	}
+	return fmt.Sprintf("np-0x%08x", x)
+}
+
+func ConvertPort(namespace, name string, port *corev1.ServicePort) corev1.ServicePort {
 	return corev1.ServicePort{
-		Name:        fmt.Sprintf("%d", port.NodePort),
+		Name:        PortName(namespace, name, port),
 		Protocol:    port.Protocol,
 		AppProtocol: port.AppProtocol,
 		Port:        port.NodePort,

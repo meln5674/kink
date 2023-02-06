@@ -244,6 +244,15 @@ spec:
             #  - version
             tcpSocket:
               port: api
+            # exec:
+            #   command:
+            #   - curl
+            #   - -fv
+            #   - --cacert=/var/lib/rancher/k3s/server/tls/server-ca.crt
+            #   - --cert /var/lib/rancher/k3s/server/tls/client-kube-apiserver.crt
+            #   - --key /var/lib/rancher/k3s/server/tls/client-kubapiserver.key
+            #   - https://localhost:6443/livez
+
           readinessProbe:
             #httpGet:
             #  path: /readyz
@@ -257,6 +266,14 @@ spec:
                 # - version
             tcpSocket:
               port: api
+            # exec:
+            #   command:
+            #   - curl
+            #   - -fv
+            #   - --cacert=/var/lib/rancher/k3s/server/tls/server-ca.crt
+            #   - --cert /var/lib/rancher/k3s/server/tls/client-kube-apiserver.crt
+            #   - --key /var/lib/rancher/k3s/server/tls/client-kubapiserver.key
+            #   - https://localhost:6443/readyz
           resources:
             {{- toYaml .Values.controlplane.resources | nindent 12 }}
           volumeMounts:

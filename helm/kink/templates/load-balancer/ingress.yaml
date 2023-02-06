@@ -1,0 +1,80 @@
+{{- if .Values.loadBalancer.ingress.enabled -}}
+{{- $dot := . }}
+{{- $lbFullName := include "kink.load-balancer.fullname" $dot }}
+{{- range $ingress := .Values.loadBalancer.ingress.static }}
+{{- $svcName := "" }}
+{{- $svcPort := "" }}
+{{- $svcPortType := "" }}
+{{- if $ingress.nodePort }}
+  {{- $svcName = include "kink.load-balancer.fullname" $dot }}
+  {{- $svcPort = (include "kink.nodePortName" $ingress.nodePort) }}
+  {{- $svcPortType = "name" }}
+{{- else if $ingress.hostPort }}
+  {{- if eq $dot.Values.worker.replicaCount 0 }}
+  {{- $svcName = include "kink.controlplane.fullname" $dot }}
+  {{- else }}
+  {{- $svcName = include "kink.worker.fullname" $dot }}
+  {{- end }}
+  {{- $svcPort = $ingress.hostPort | toString }}
+  {{- $svcPortType = "number" }}
+{{- else }}
+  {{- print "Static ingress targets must specify either hostPort or nodePort: " $ingress | fail }}
+{{- end }}
+{{- $fullName := print $lbFullName "-" $svcPort }}
+{{- if and $ingress.className (not (semverCompare ">=1.18-0" $dot.Capabilities.KubeVersion.GitVersion)) }}
+  {{- if not (hasKey $ingress.annotations "kubernetes.io/ingress.class") }}
+  {{- $_ := set $ingress.annotations "kubernetes.io/ingress.class" $ingress.className}}
+  {{- end }}
+{{- end }}
+{{- if semverCompare ">=1.19-0" $dot.Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1
+{{- else if semverCompare ">=1.14-0" $dot.Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "kink.load-balancer.labels" $dot | nindent 4 }}
+  {{- with $ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if and $ingress.className (semverCompare ">=1.18-0" $dot.Capabilities.KubeVersion.GitVersion) }}
+  ingressClassName: {{ $ingress.className }}
+  {{- end }}
+  {{- if $ingress.tls }}
+  tls:
+    - hosts:
+      {{- range $ingress.hosts }}
+      - {{ .host | quote }}
+      {{- end }}
+  {{- end }}
+  rules:
+    {{- range $ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            {{- if semverCompare ">=1.18-0" $dot.Capabilities.KubeVersion.GitVersion }}
+            pathType: {{ .pathType }}
+            {{- end }}
+            backend:
+              {{- if semverCompare ">=1.19-0" $dot.Capabilities.KubeVersion.GitVersion }}
+              service:
+                name: {{ $svcName }}
+                port:
+                  {{ $svcPortType }}: {{ $svcPort }} 
+              {{- else }}
+              serviceName: {{ $fullName }}
+              servicePort: {{ $svcPort }}
+              {{- end }}
+        {{- end }}
+    {{- end }}
+---
+{{ end }}
+{{- end }}

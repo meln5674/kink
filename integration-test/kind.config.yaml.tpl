@@ -44,6 +44,14 @@ nodes:
     hostPort: 30004
     listenAddress: "127.0.0.1"
     protocol: TCP
+  - containerPort: 30005
+    hostPort: 30005
+    listenAddress: "127.0.0.1"
+    protocol: TCP
+  - containerPort: 30006
+    hostPort: 30006
+    listenAddress: "127.0.0.1"
+    protocol: TCP
   kubeadmConfigPatches:
   - |
     kind: ClusterConfiguration
@@ -51,6 +59,6 @@ nodes:
       extraArgs:
         # To test nodeport controlplane access, we need to expose whatever nodeport gets picked for it
         # In order to not have to export every possible nodeport, we make it so that there are only as
-        # many ports as the controlplane service needs, and only expose those
-        service-node-port-range: 30000-30005
+        # many ports as the tests need, and only expose those
+        service-node-port-range: 30000-30007
 

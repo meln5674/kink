@@ -1,4 +1,3 @@
-* Test ingress
 * Add option for multiple storage classes
     * In theory, it should be possible to offer multiple storage classes by creating multiple instances of the local path provisioner at multiple mount points backed by different real PVCs of different storage classes, and creating StorageClasses with identical names. This should, again in theory, make it possible to test applications which depend on different host storage classes
     * Would need to find a suitable test app
@@ -24,10 +23,15 @@
 * Set up actions to publish exe's, chart, and image
     * Run integration tests in actions and see how long until I get rate limited
 * Extract command functions into pkg/ for use in other projects
-* Use a similar approach to loadbalancer to map guest ingress hosts and paths to host hosts and paths
 * Switch commands that need controlplane access from using port-forward to just exec'ing on an available controlplane node
 * After chart is upgraded, wait for all nodes to become ready
 * Refactor ginkgo integration tests into a command that can be used to stand up a dev env like the shell versions allow
 * Add commands to generate a stub chart (no templates, dependency on kink chart, with values), argocd Applications, and fluxcd HelmReleases from a given config file for use in gitops
 * Forward logs from all pods to a central log aggregation pod so that pod logs can be shipped to host cluster logging
 * Switch from using binaries for kubectl, helm, kind, etc, to importing them as libraries
+* Get better live/readiness probes
+    * controlplane should be possible, as all of the certs are there
+    * workers will be harder. Need to somehow get apiserver cert in order to authenticate endpoints
+        * Sidecar that pulls from the kubeconfig job?
+* Change the labels for lb-manager managed resources to say managed by the deployment instead of by helm
+* Instead of changing what things target if there are no worker nodes, just set the selector for that service differently if there are no workers

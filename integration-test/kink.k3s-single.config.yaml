@@ -24,5 +24,10 @@ release:
     loadBalancer.ingress.enabled: 'true'
     loadBalancer.ingress.classMappings[0].guestClassName: nginx
     loadBalancer.ingress.classMappings[0].className: nginx
+    loadBalancer.ingress.static[0].className: nginx
+    loadBalancer.ingress.static[0].hosts[0].host: wordpress.ingress.outer
+    loadBalancer.ingress.static[0].hosts[0].paths[0].path: /
+    loadBalancer.ingress.static[0].hosts[0].paths[0].pathType: Prefix
+    loadBalancer.ingress.static[0].hostPort: 9080
   setString:
     loadBalancer.ingress.classMappings[0].hostPort.httpPort: '80'

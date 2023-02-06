@@ -39,7 +39,6 @@ release:
     controlplane.extraArgs[0]: '--debug'
     controlplane.extraArgs[1]: '--disable=traefik'
     controlplane.extraArgs[2]: '--disable=servicelb'
-    controlplane.extraArgs[3]: '--service-node-port-range=30000-30001'
     workers.extraArgs[0]: '--node-label=foo=bar'
     loadBalancer.enabled: 'true'
     kubeconfig.enabled: 'true'
@@ -55,6 +54,13 @@ release:
     loadBalancer.ingress.classMappings[0].nodePort.namespace: default
     loadBalancer.ingress.classMappings[0].nodePort.name: ingress-nginx-controller
     loadBalancer.ingress.classMappings[0].nodePort.httpPort: http
+    loadBalancer.ingress.static[0].className: nginx
+    loadBalancer.ingress.static[0].hosts[0].host: wordpress.ingress.outer
+    loadBalancer.ingress.static[0].hosts[0].paths[0].path: /
+    loadBalancer.ingress.static[0].hosts[0].paths[0].pathType: Prefix
+    loadBalancer.ingress.static[0].nodePort.namespace: default
+    loadBalancer.ingress.static[0].nodePort.name: wordpress
+    loadBalancer.ingress.static[0].nodePort.port: http
   setString:
     controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"
     extraArgs[1]: '1'

@@ -184,3 +184,41 @@ https://{{ include "kink.controlplane.fullname" . }}:{{ (index .Values.controlpl
 https://{{ include "kink.controlplane.fullname" . }}:{{ .Values.controlplane.service.api.port }}
 {{- end -}}
 {{- end -}}
+
+{{- define "kink.nodePortName" -}}
+{{- $toSum := "" -}}
+{{- if eq (kindOf .port) "string" -}}
+{{- $toSum = printf "%s/%s/%s" .namespace .name .port -}}
+{{- else if has (kindOf .port) (list "int64" "int32" "int") -}}
+{{- $toSum = printf "%s/%s/%d" .namespace .name .port -}}
+{{- else -}}
+{{- printf "nodePort ingress targets must set port name string or port number, but got %s" (kindOf .port) | fail -}}
+{{- end -}}
+{{- printf "np-0x%08x" (atoi (adler32sum $toSum)) }} # {{ $toSum }}, {{ adler32sum $toSum }}, {{ atoi (adler32sum $toSum) -}}
+{{- end -}}
+
+{{- define "kink.load-balancer.ingressHostPorts" -}}
+{{- range .Values.loadBalancer.ingress.classMappings }}
+{{- with .hostPort }}
+{{- with .httpPort }}
+- name: '{{ . }}'
+  port: {{ . }}
+  targetPort: {{ . }}
+{{- end }}
+{{- with .httpsPort }}
+- name: '{{ . }}'
+  port: {{ . }}
+  targetPort: {{ . }}
+{{- end }}
+  protocol: TCP
+{{- end }}
+{{- end }}
+{{- range .Values.loadBalancer.ingress.static }}
+{{- with .hostPort }}
+- name: '{{ . }}'
+  port: {{ . }}
+  targetPort: {{ . }}
+  protocol: TCP
+{{- end }}
+{{- end }}
+{{- end -}}

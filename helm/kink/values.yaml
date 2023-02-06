@@ -1,7 +1,4 @@
-# Default values for kink.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
+# All pods will use the same image
 image:
   repository: ghcr.io/meln5674/kink
   pullPolicy: IfNotPresent
@@ -12,7 +9,9 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-
+# By default, the kubelet data is stored on an emptyDir volume for performance.
+# It is not recommended to use networked storage, but if you have a storage class
+# that maps to direct disk access, you can set that here
 kubelet:
   persistence:
     enabled: false
@@ -21,10 +20,14 @@ kubelet:
     - ReadWriteOnce
     storageClassName: 
 
+# Extra global configuration to apply to all pods
+
 extraEnv: []
 extraArgs: []
 extraVolumes: []
 extraVolumeMounts: []
+
+# Configuration for the control plane ("servers")
 
 controlplane:
   replicaCount: 1
@@ -65,7 +68,7 @@ controlplane:
     rke2-discover:
       port: 9345
 
-  # If this is set, this will be used along with the nodeport to build the apiserver url
+  # If this is set, this will be used along with the nodeport to build the apiserver url when exporting your kubeconfig
   nodeportHost: ''
 
     
@@ -94,6 +97,7 @@ controlplane:
 
   affinity: {}
 
+  # Persistence for etcd
   persistence:
     enabled: false
     size: 8Gi
@@ -105,6 +109,7 @@ controlplane:
     extraMounts: []
 
   # If enabled, the first host listed will be used to build the kubeconfig apiserver url
+  # This requires SSL passthrough, TLS termination/re-encryption will NOT work
   ingress:
     enabled: false
     className: ""
@@ -125,6 +130,7 @@ controlplane:
   extraVolumes: []
   extraVolumeMounts: []
 
+# Configuration for worker nodes ("agents")
 worker:
   serviceAccount:
     # Specifies whether a service account should be created
@@ -188,12 +194,16 @@ worker:
 
   affinity: {}
 
+  # Arbitrary persistence for worker nodes
+  # Each worker gets its own volume
   persistence:
     enabled: false
     size: 8Gi
     accessModes:
     - ReadWriteOnce
     storageClassName: 
+    # Locations to mount the volume
+    # Each mount will use a matching sub-path, so all mounts will be a unique directory in the volume
     extraMounts:
     - /opt/local-path-provisioner
 
@@ -210,6 +220,8 @@ loadBalancer:
   labels: []
   service:
     annotations: {}
+
+  # Configuration for the manager deployment
   manager:
     replicaCount: 1
     serviceAccount:
@@ -267,7 +279,7 @@ loadBalancer:
     enabled: false
 
 
-    # Each mapping defines a different ingress resource to be managed
+    # Each mapping defines a different ingress resource to be managed dynamically
     classMappings: []
     # - guestClassName: # The ingressClassName on the guest ingress resources to watch for. Must be unique
     #   className: # The ingressClassName on the host ingress resource to create. May be repeated.
@@ -284,6 +296,27 @@ loadBalancer:
     #     # Can only specify one, https requires SSL passthrough
     #     httpPort: # The http host port
     #     httpsPort: # The https host port
+   
+    # Each entry generates a separate, static ingress
+    static: []
+    # - className: # The ingressClassName on the host ingress resource to create. May be repeated.
+    #   annotations: {} # The ingressClassName on the host ingress resource to create. May be repeated.
+    #   hosts:
+    #   - host: # Hostname of the ingress rule
+    #     # Path info for ingress rule
+    #     paths:
+    #     - path: /
+    #       pathType: Prefix
+    #   # To target a host port
+    #   hostPort: # Port number 
+    #   # To target a guest NodePort or LoadBalancer service
+    #   nodePort:
+    #     namespace: # Namespace of the guest service
+    #     name: # Name of the guest service
+    #     port: # Name or port number in the guest service. NOTE: If the port has a name, you MUST use the name, not the number.
+    #   # If true, add a secret-less TLS entry for each host
+    #   tls: false
+      
 
 
 
