@@ -35,12 +35,13 @@ func TestE2e(t *testing.T) {
 
 var (
 	// These 4 are used when debugging interactively. They should be set to false in the actual repo
-	noCleanup = false
-	noCreate  = false
-	noPull    = false
-	noLoad    = false
-	noDeps    = false
-	noRebuild = false
+	noSuiteCleanup = false
+	noCleanup      = false
+	noCreate       = false
+	noPull         = false
+	noLoad         = false
+	noDeps         = false
+	noRebuild      = false
 
 	imageRepo    string
 	imageTag     string
@@ -255,12 +256,12 @@ func InitKindCluster() {
 		ExpectRun(kindOpts.CreateCluster(kindConfigPath, kindKubeconfigPath))
 	}
 	DeferCleanup(func() {
-		if !noCleanup {
+		if !noSuiteCleanup {
 			ExpectRun(kindOpts.DeleteCluster())
 		}
 	})
 	DeferCleanup(func() {
-		if !noCleanup {
+		if !noCleanup || !noSuiteCleanup {
 			CleanupPVCDirs()
 		}
 	})
@@ -546,7 +547,7 @@ func (c Case) Run() bool {
 				`,
 			).WithStreams(GinkgoOutErr))
 
-			if !noDeps || !noLoad {
+			if !noDeps && !noLoad {
 				wordpressLoadFlags := make([]string, 0, len(c.LoadFlags)+2)
 				wordpressLoadFlags = append(wordpressLoadFlags, c.LoadFlags...)
 				wordpressLoadFlags = append(wordpressLoadFlags, "--parallel-loads", "1")
@@ -662,10 +663,21 @@ func (c Case) Run() bool {
 								}
 							}
 						}`)...).WithStreams(GinkgoOutErr))
-
+				/*
+					Eventually(
+						gosh.Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "-n", c.Name, "get", "ingress", fmt.Sprintf("kink-%s-lb-nginx", c.Name))...).WithStreams(GinkgoOutErr).Run(),
+						"10m", "1s",
+					).Should(Succeed())
+				*/
 				if !noCleanup {
 					DeferCleanup(func() {
 						ExpectRun(gosh.Command(helm.Delete(&helmOpts, &wordpressChart, &wordpressRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
+						/*
+							Eventually(
+								gosh.Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "-n", c.Name, "get", "ingress", fmt.Sprintf("kink-%s-lb-nginx", c.Name))...).WithStreams(GinkgoOutErr).Run(),
+								"1m", "1s",
+							).ShouldNot(Succeed())
+						*/
 					})
 				}
 			}
