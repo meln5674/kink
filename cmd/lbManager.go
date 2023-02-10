@@ -512,10 +512,19 @@ func (i *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	run.UpsertPaths()
-	err = run.CreateOrUpdateHostIngress()
-	if err != nil {
-		return ctrl.Result{Requeue: true, RequeueAfter: requeueDelay}, err
+	oldClass := run.UpsertPaths()
+	if run.GuestClass != "" {
+		err = run.CreateOrUpdateHostIngress(run.GuestClass)
+		if err != nil {
+			return ctrl.Result{Requeue: true, RequeueAfter: requeueDelay}, err
+		}
+	}
+	if oldClass != "" && oldClass != run.GuestClass {
+		log.Info("Class has changed, need to update old ingress as well")
+		err = run.CreateOrUpdateHostIngress(oldClass)
+		if err != nil {
+			return ctrl.Result{Requeue: true, RequeueAfter: requeueDelay}, err
+		}
 	}
 	return ctrl.Result{}, nil
 }
@@ -543,10 +552,12 @@ func (i *IngressControllerRun) HandleFinalizer() (deleted bool, err error) {
 	if i.Ingress.DeletionTimestamp != nil {
 		i.Log.Info("Removing paths for service being deleted")
 		i.RemovePaths()
-		i.Log.Info("Regenerating host ingress")
-		err = i.CreateOrUpdateHostIngress()
-		if err != nil {
-			return false, nil
+		if i.GuestClass != "" {
+			i.Log.Info("Regenerating host ingress")
+			err = i.CreateOrUpdateHostIngress(i.GuestClass)
+			if err != nil {
+				return false, nil
+			}
 		}
 		i.Log.Info("Removing finalizer")
 		controllerutil.RemoveFinalizer(i.Ingress, IngressFinalizer)
@@ -565,13 +576,13 @@ func (i *IngressControllerRun) HandleFinalizer() (deleted bool, err error) {
 	return false, nil
 }
 
-func (i *IngressControllerRun) UpsertPaths() {
+func (i *IngressControllerRun) UpsertPaths() (oldClass string) {
 	nsClasses, ok := i.IngressClasses[i.Ingress.Namespace]
 	if !ok {
 		nsClasses = make(map[string]string)
 		i.IngressClasses[i.Ingress.Namespace] = nsClasses
 	}
-	oldClass, ok := nsClasses[i.Ingress.Name]
+	oldClass, ok = nsClasses[i.Ingress.Name]
 	if ok && oldClass != i.GuestClass {
 		oldClassIngresses, ok := i.ClassIngresses[oldClass]
 		if ok {
@@ -582,7 +593,7 @@ func (i *IngressControllerRun) UpsertPaths() {
 		}
 	}
 	if i.GuestClass == "" {
-		return
+		return oldClass
 	}
 	nsClasses[i.Ingress.Name] = i.GuestClass
 	classIngresses, ok := i.ClassIngresses[i.GuestClass]
@@ -618,6 +629,8 @@ func (i *IngressControllerRun) UpsertPaths() {
 		}
 		hostPaths[rule.Host] = paths
 	}
+
+	return oldClass
 }
 
 func (i *IngressControllerRun) RemovePaths() {
@@ -777,18 +790,18 @@ func (i *IngressControllerRun) GenerateHostIngress() error {
 
 	return nil
 }
-func (i *IngressControllerRun) CreateOrUpdateHostIngress() error {
+func (i *IngressControllerRun) CreateOrUpdateHostIngress(guestClass string) error {
 	i.GenerateHostIngress()
-	if len(i.Targets[i.GuestClass].Spec.Rules) == 0 {
+	if len(i.Targets[guestClass].Spec.Rules) == 0 {
 		i.Log.Info("Removing host ingress with no rules")
-		err := i.Host.Delete(i.Ctx, i.Targets[i.GuestClass])
+		err := i.Host.Delete(i.Ctx, i.Targets[guestClass])
 		if kerrors.IsNotFound(err) {
 			return nil
 		}
 		return err
 	}
 	i.Log.Info("Regenerating host ingress")
-	_, err := controllerutil.CreateOrUpdate(i.Ctx, i.Host, i.Targets[i.GuestClass], func() error {
+	_, err := controllerutil.CreateOrUpdate(i.Ctx, i.Host, i.Targets[guestClass], func() error {
 		i.GenerateHostIngress()
 		return nil
 	})
