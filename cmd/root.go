@@ -137,6 +137,17 @@ func loadConfig() error {
 		}
 	} else {
 		doc := corev1.ConfigMap{}
+		if !config.Chart.IsLocalChart() {
+			klog.Info("Ensuring helm repo exists...")
+			repoAdd := helm.RepoAdd(&config.Helm, &config.Chart)
+			err = gosh.
+				Command(repoAdd...).
+				WithStreams(gosh.ForwardOutErr).
+				Run()
+			if err != nil {
+				return err
+			}
+		}
 		err = gosh.
 			Command(helm.TemplateCluster(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)...).
 			WithStreams(
