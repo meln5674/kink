@@ -74,9 +74,13 @@ spec:
                 export ETCDCTL_KEY=$(yq '.["client-transport-security"].["key-file"]' "${ETCD_CONFIG_FILE}")
                 export ETCDCTL_ENDPOINTS='https://{{ include "kink.controlplane.fullname" . }}:2379'
                 ETCD_NAME=$(cat "${ETCD_NAME_FILE}")
-                ETCD_ID=$(etcdctl member list --write-out=json | yq '.members[] | select(.name|test("'"${POD_NAME}"'")).ID')
-                ETCD_ID=$(printf '%x' "${ETCD_ID}")
-                etcdctl member update "${ETCD_ID}" --peer-urls="https://${POD_IP}:2380"
+                ETCD_ID=$(etcdctl member list --write-out=json | tee /dev/stderr | yq '.members[] | tee /dev/stderr | select(.name|test("'"${POD_NAME}"'")).ID')
+                if [ -z "${ETCD_ID}" ]; then
+                  echo "This node is not an etcd member, not updating"
+                else
+                  ETCD_ID=$(printf '%x' "${ETCD_ID}")
+                  etcdctl member update "${ETCD_ID}" --peer-urls="https://${POD_IP}:2380"
+                fi
               else
                 echo "No etcd config file present, assuming this node isn't initialized"
               fi
