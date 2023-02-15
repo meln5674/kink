@@ -61,6 +61,7 @@ var rootCmd = &cobra.Command{
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return loadConfig() },
+	SilenceUsage:      true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -148,6 +149,7 @@ func loadConfig() error {
 				return err
 			}
 		}
+		loadedConfig := false
 		err = gosh.
 			Command(helm.TemplateCluster(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)...).
 			WithStreams(
@@ -158,7 +160,7 @@ func loadConfig() error {
 						doc = corev1.ConfigMap{}
 						err := decoder.Decode(&doc)
 						if errors.Is(err, io.EOF) {
-							return fmt.Errorf("BUG: No matching configmap found in chart output")
+							return nil
 						}
 						if err != nil {
 							// TODO: find a way to distinguish I/O errors and syntax errors from "not a configmap" errors
@@ -178,6 +180,7 @@ func loadConfig() error {
 							return err
 						}
 						if ok {
+							loadedConfig = true
 							return nil
 						}
 						klog.Warning("Found a configmap other than the one we're looking for")
@@ -187,6 +190,9 @@ func loadConfig() error {
 			Run()
 		if err != nil {
 			return err
+		}
+		if !loadedConfig {
+			return fmt.Errorf("Did not find the expected cluster configmap in the helm template output. This could be a bug or your release values are invalid")
 		}
 	}
 	klog.V(1).Infof("%#v", releaseConfig)
