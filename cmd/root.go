@@ -4,6 +4,7 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"context"
 	"errors"
 	goflag "flag"
 	"fmt"
@@ -48,6 +49,8 @@ var (
 	releaseConfig cfg.ReleaseConfig
 
 	kubeconfig *k8srest.Config
+
+	doRepoUpdate bool
 
 // TODO: Get this by parsing config
 )
@@ -94,6 +97,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.ChartName, "chart", "kink", "Name of KinK Helm Chart")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.Version, "chart-version", "", "Version of the chart to install")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.RepositoryURL, "repository-url", "https://meln5674.github.io/kink", "URL of KinK Helm Chart repository")
+	rootCmd.Flags().BoolVar(&doRepoUpdate, "repo-update", true, "Update the helm repo before upgrading. Note that if a new chart version has become availabe since install or last upgrade, this will result in upgrading the chart. If this unacceptable, set this to false, or use --chart-version to pin a specific version")
 	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", clusterName, "Name of the kink cluster")
 	rootCmd.PersistentFlags().StringArrayVar(&configOverrides.Release.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")
 	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.Set, "set", map[string]string{}, "Extra field overrides to use when creating cluster")
@@ -147,6 +151,20 @@ func loadConfig() error {
 				Run()
 			if err != nil {
 				return err
+			}
+			if doRepoUpdate {
+				repoUpdate := helm.RepoUpdate(&config.Helm, config.Chart.RepoName())
+				klog.Info("Updating chart repo...")
+				err = gosh.
+					Command(repoUpdate...).
+					WithContext(context.TODO()).
+					WithStreams(gosh.ForwardOutErr).
+					Run()
+				if err != nil {
+					return err
+				}
+			} else {
+				klog.Info("Chart repo update skipped by flag")
 			}
 		}
 		loadedConfig := false
