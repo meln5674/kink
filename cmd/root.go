@@ -107,6 +107,16 @@ func init() {
 	clientcmd.BindOverrideFlags(&configOverrides.Kubernetes.ConfigOverrides, rootCmd.PersistentFlags(), clientcmd.RecommendedConfigOverrideFlags(""))
 }
 
+type devNullT struct{}
+
+var devNull = devNullT{}
+
+var _ = io.Writer(devNull)
+
+func (d devNullT) Write(b []byte) (int, error) {
+	return len(b), nil
+}
+
 func loadConfig() error {
 	var err error
 	if configPath != "" {
@@ -195,9 +205,13 @@ func loadConfig() error {
 						}
 						ok, err := releaseConfig.LoadFromConfigMap(&doc)
 						if err != nil {
+							// If we don't flush its stdout, the helm template process never exits on windows
+							io.Copy(devNull, r)
 							return err
 						}
 						if ok {
+							// See above
+							io.Copy(devNull, r)
 							loadedConfig = true
 							return nil
 						}
