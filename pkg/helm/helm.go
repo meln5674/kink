@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	ClusterLabel  = "kind.meln5674.github.com/cluster"
+	ClusterLabel  = "kink.meln5674.github.com/cluster"
 	ReleasePrefix = "kink-"
 )
 
