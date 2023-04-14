@@ -1,6 +1,6 @@
 {{- define "kink.load-balancer.ingressYAML" -}}
 enabled: {{ .Values.loadBalancer.ingress.enabled }}
-hostPortTargetFullname: '{{ if eq .Values.worker.replicaCount 0 }}{{ include "kink.controlplane.fullname" . }}{{ else }}{{ include "kink.worker.fullname" . }}{{ end }}'
+hostPortTargetFullname: '{{ if eq (int .Values.worker.replicaCount) 0 }}{{ include "kink.controlplane.fullname" . }}{{ else }}{{ include "kink.worker.fullname" . }}{{ end }}'
 classMappings:
 {{- $guestClasses := list }}
 {{- range .Values.loadBalancer.ingress.classMappings }}
@@ -74,7 +74,7 @@ worker.selectorLabels: '{{ include "kink.worker.selectorLabels" . | fromYaml | t
 
 load-balancer.fullname: {{ include "kink.load-balancer.fullname" . }}
 load-balancer.labels: '{{ include "kink.load-balancer.labels" . | fromYaml | toJson }}'
-load-balancer.selectorLabels: '{{ if eq .Values.worker.replicaCount 0 }}{{ include "kink.controlplane.selectorLabels" . | fromYaml | toJson }}{{ else }}{{ include "kink.worker.selectorLabels" . | fromYaml | toJson }}{{ end }}'
+load-balancer.selectorLabels: '{{ if eq (int .Values.worker.replicaCount) 0 }}{{ include "kink.controlplane.selectorLabels" . | fromYaml | toJson }}{{ else }}{{ include "kink.worker.selectorLabels" . | fromYaml | toJson }}{{ end }}'
 load-balancer.service.annotations: '{{ .Values.loadBalancer.service.annotations | toJson }}'
 load-balancer.ingress: '{{ include "kink.load-balancer.ingressYAML" . | fromYaml | toJson }}'
 

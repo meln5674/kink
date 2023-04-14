@@ -189,8 +189,9 @@ https://{{ include "kink.controlplane.fullname" . }}:{{ .Values.controlplane.ser
 {{- $toSum := "" -}}
 {{- if eq (kindOf .port) "string" -}}
 {{- $toSum = printf "%s/%s/%s" .namespace .name .port -}}
-{{- else if has (kindOf .port) (list "int64" "int32" "int") -}}
-{{- $toSum = printf "%s/%s/%d" .namespace .name .port -}}
+{{- else if has (kindOf .port) (list "int64" "int32" "int" "float64" "float32") -}}
+{{/* Helm renders any numeric values in a values.yaml as a float64, so we have to support them */}}
+{{- $toSum = printf "%s/%s/%d" .namespace .name (int .port) -}}
 {{- else -}}
 {{- printf "nodePort ingress targets must set port name string or port number, but got %s" (kindOf .port) | fail -}}
 {{- end -}}

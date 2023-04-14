@@ -17,7 +17,7 @@ spec:
       protocol: TCP
       name: {{ $port }}
     {{- end }}
-    {{- if eq .Values.worker.replicaCount 0 }}
+    {{- if eq (int .Values.worker.replicaCount) 0 }}
     {{- if .Values.loadBalancer.ingress.enabled }}
     {{- include "kink.load-balancer.ingressHostPorts" . | nindent 4 }}
     {{- end }}
@@ -48,7 +48,7 @@ spec:
       protocol: TCP
       name: {{ $port }}
     {{- end }}
-    {{- if eq .Values.worker.replicaCount 0 }}
+    {{- if eq (int .Values.worker.replicaCount) 0 }}
     {{- if .Values.loadBalancer.ingress.enabled }}
     {{- include "kink.load-balancer.ingressHostPorts" . | nindent 4 }}
     {{- end }}

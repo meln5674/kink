@@ -10,7 +10,7 @@
   {{- $svcPort = (include "kink.nodePortName" $ingress.nodePort) }}
   {{- $svcPortType = "name" }}
 {{- else if $ingress.hostPort }}
-  {{- if eq $dot.Values.worker.replicaCount 0 }}
+  {{- if eq (int $dot.Values.worker.replicaCount) 0 }}
   {{- $svcName = include "kink.controlplane.fullname" $dot }}
   {{- else }}
   {{- $svcName = include "kink.worker.fullname" $dot }}
