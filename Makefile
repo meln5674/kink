@@ -81,4 +81,8 @@ lint:
 
 test:
 	# Excessively long timeout is for github actions which are really slow
-	ginkgo run -vv --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
+	ginkgo run -p -vv --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
+
+.PHONY: test
+clean-tests:
+	./hack/clean-tests.sh
