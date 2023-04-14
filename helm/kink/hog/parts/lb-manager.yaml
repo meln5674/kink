@@ -1,0 +1,4 @@
+kubeconfig:
+  enabled: true
+loadBalancer:
+  enabled: true

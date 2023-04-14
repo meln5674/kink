@@ -1,0 +1,41 @@
+apiVersion: helm-hog.meln5674.github.com/v1alpha1
+Kind: Project
+
+partsDirs:
+- hog/parts
+
+# To define variables, provide a map from the variable name to the map of choices, which are themselves maps from the choice name to the list of part names
+variables:
+  architecture:
+      'default': []
+      'single-node': ['single-node']
+      'ha': ['controlplane-ha']
+      'rke2': ['rke2', 'controlplane-ha']
+  controlplane:
+      'in-cluster': []
+      'ingress': ['controlplane-ingress']
+      'nodeport': ['controlplane-nodeport']
+  lb-manager:
+      'off': []
+      'in-cluster': ['lb-manager']
+      'ingress': ['lb-manager', 'lb-manager-ingress']
+      'nodeport': ['lb-manager', 'lb-manager-nodeport']
+  file-gateway:
+      'off': []
+      'in-cluster': ['file-gateway']
+      'nodeport': ['file-gateway']
+      'ingress': ['file-gateway', 'file-gateway-ingress']
+  shared-persistence:
+      'off': []
+      'on': ['shared-persistence']
+
+variableOrder: [architecture,controlplane,lb-manager,shared-persistence,file-gateway] 
+
+# To only allow combinations of Mappings when other combinations are also present, provide a map from rule names to their "if" (combination to match) and "then" (combinations to require if "if" is matched)
+requirements:
+  '1': {if: { 'file-gateway': 'in-cluster' }, then: { 'controlplane': 'in-cluster' }}
+  '2': {if: { 'file-gateway': 'in-cluster' }, then: { 'shared-persistence': 'on' }}
+  '3': {if: { 'file-gateway': 'nodeport' },   then: {'controlplane': 'nodeport' }}
+  '4': {if: { 'file-gateway': 'nodeport' },   then: { 'shared-persistence': 'on' }}
+  '5': {if: { 'file-gateway': 'ingress' },    then: { 'controlplane': 'ingress' }}
+  '6': {if: { 'file-gateway': 'ingress' },    then: { 'shared-persistence': 'on' }}

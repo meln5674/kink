@@ -1,0 +1,2 @@
+loadBalancer:
+  nodeportHost: host

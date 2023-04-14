@@ -1,0 +1,4 @@
+controlplane:
+  service:
+    type: NodePort
+  nodeportHost: host

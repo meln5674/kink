@@ -1,0 +1,69 @@
+loadBalancer:
+  ingress:
+    enabled: true
+    classMappings:
+    - guestClassName: guestClassName1
+      className: className 
+      nodePort:
+        namespace: ns 
+        name: name 
+        nodePort:
+          httpPort: http 
+    - guestClassName: guestClassName2
+      className: className
+      nodePort:
+        namespace: ns
+        name: name
+        nodePort:
+          httpsPort: https
+    - guestClassName: guestClassName3
+      className: className
+      nodePort:
+        namespace: ns
+        name: name
+        hostPort:
+          httpPort: 80
+    - guestClassName: guestClassName4
+      className: className
+      nodePort:
+        namespace: ns
+        name: name
+        hostPort:
+          httpsPort: 443
+    static:
+    - className: className 
+      hostPort: 80 
+      hosts:
+      - host: test0.cluster.local 
+        paths:
+        - path: / 
+          pathType: Prefix 
+    - className: className 
+      hostPort: 443
+      tls: true 
+      hosts:
+      - host: test1.cluster.local 
+        paths:
+        - path: / 
+          pathType: Prefix 
+    - className: className 
+      nodePort:
+        namespace: namespace 
+        name: name 
+        port: port-name 
+      hosts:
+      - host: test2.cluster.local 
+        paths:
+        - path: / 
+          pathType: Prefix 
+    - className: className 
+      nodePort:
+        namespace: namespace 
+        name: name 
+        port: 9001 
+      tls: true 
+      hosts:
+      - host: test3.cluster.local 
+        paths:
+        - path: / 
+          pathType: Prefix

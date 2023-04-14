@@ -50,6 +50,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go
 
+      - name: Lint
+        id: lint
+        run: |
+          export GOPATH=~/go
+          ./build-env.sh make lint
+
       - name: Run Integration Tests
         id: run-integration-tests
         run: |

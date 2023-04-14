@@ -1,0 +1,2 @@
+controlplane:
+  replicaCount: 3

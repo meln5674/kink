@@ -1,0 +1,5 @@
+controlplane:
+  ingress:
+    enabled: true
+    hosts:
+    - host

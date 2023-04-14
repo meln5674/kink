@@ -1,0 +1,4 @@
+fileGateway:
+  ingress:
+    hosts:
+    - host: host

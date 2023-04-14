@@ -45,6 +45,7 @@ FROM base AS goinstall
 
 COPY go.mod /go.mod
 RUN go install $(cat /go.mod | grep ginkgo | awk '{ print $1 "/ginkgo@" $2 }') && rm /go.mod
+RUN go install github.com/meln5674/helm-hog@latest 
 
 FROM base
 
