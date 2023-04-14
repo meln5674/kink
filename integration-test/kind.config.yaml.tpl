@@ -4,10 +4,15 @@ nodes:
 - role: control-plane
   extraMounts:
   # To test PVCs, we need at least two host mounts for the local provisioner
-  - hostPath: ${PWD}/integration-test/shared-local-path-provisioner
+  - hostPath: ${PWD}/integration-test/volumes/var/shared-local-path-provisioner
     containerPath: /var/shared-local-path-provisioner
-  - hostPath: ${PWD}/integration-test/local-path-provisioner
+  - hostPath: ${PWD}/integration-test/volumes/var/local-path-provisioner
     containerPath: /var/local-path-provisioner
+  # Not necessary, but this should be faster than using the overlayfs
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/kubelet
+    containerPath: /var/lib/kubelet
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/containerd
+    containerPath: /var/lib/containerd
   # These are needed in order to run in-cluster tests 
   - hostPath: ${PWD}
     containerPath: /src/kink
@@ -50,6 +55,18 @@ nodes:
     protocol: TCP
   - containerPort: 30006
     hostPort: 30006
+    listenAddress: "127.0.0.1"
+    protocol: TCP
+  - containerPort: 30007
+    hostPort: 30007
+    listenAddress: "127.0.0.1"
+    protocol: TCP
+  - containerPort: 30008
+    hostPort: 30008
+    listenAddress: "127.0.0.1"
+    protocol: TCP
+  - containerPort: 30009
+    hostPort: 30009
     listenAddress: "127.0.0.1"
     protocol: TCP
   kubeadmConfigPatches:

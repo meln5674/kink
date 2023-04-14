@@ -55,7 +55,7 @@ release:
     loadBalancer.ingress.classMappings[0].nodePort.name: ingress-nginx-controller
     loadBalancer.ingress.classMappings[0].nodePort.httpPort: http
     loadBalancer.ingress.static[0].className: nginx
-    loadBalancer.ingress.static[0].hosts[0].host: wordpress.ingress.outer
+    loadBalancer.ingress.static[0].hosts[0].host: wordpress.k3s.ingress.outer
     loadBalancer.ingress.static[0].hosts[0].paths[0].path: /
     loadBalancer.ingress.static[0].hosts[0].paths[0].pathType: Prefix
     loadBalancer.ingress.static[0].nodePort.namespace: default

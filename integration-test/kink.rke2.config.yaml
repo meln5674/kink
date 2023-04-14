@@ -30,7 +30,7 @@ release:
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
     loadBalancer.ingress.static[0].className: nginx
     loadBalancer.ingress.static[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
-    loadBalancer.ingress.static[0].hosts[0].host: wordpress.ingress.outer
+    loadBalancer.ingress.static[0].hosts[0].host: wordpress.rke2.ingress.outer
     loadBalancer.ingress.static[0].hosts[0].paths[0].path: '/'
     loadBalancer.ingress.static[0].hosts[0].paths[0].pathType: Prefix
     loadBalancer.ingress.static[0].hostPort: '9443'
