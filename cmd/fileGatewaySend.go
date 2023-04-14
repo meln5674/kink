@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	k8srest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -189,6 +190,7 @@ var sendCmd = &cobra.Command{
 								return err
 							}
 						}
+						klog.V(4).Infof("Sent: %s", path)
 
 						return nil
 					}

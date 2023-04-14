@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -89,6 +90,39 @@ var recvCmd = &cobra.Command{
 
 			archive := tar.NewReader(archiveContents)
 
+			extractFromArchive := func(fullpath string, header *tar.Header) error {
+				switch header.Typeflag {
+				case tar.TypeDir:
+					if wipeDirs {
+						err = os.RemoveAll(fullpath)
+						if err != nil {
+							return err
+						}
+					}
+					err = os.MkdirAll(fullpath, os.FileMode(header.Mode))
+					if err != nil {
+						return err
+					}
+				case tar.TypeReg:
+					f, err := os.Create(fullpath)
+					if err != nil {
+						return err
+					}
+					defer f.Close()
+					f.Chmod(os.FileMode(header.Mode))
+					_, err = io.Copy(f, archive)
+					if err != nil {
+						return err
+					}
+				default:
+					if err != nil {
+						return fmt.Errorf("%s: Unsupported type, only directories and regular files are permitted", header.Name)
+					}
+				}
+
+				return nil
+			}
+
 			for {
 				header, err := archive.Next()
 				if errors.Is(err, io.EOF) {
@@ -112,44 +146,13 @@ var recvCmd = &cobra.Command{
 					w.Write([]byte(fmt.Sprintf("%s is not within an allowed directory", fullpath)))
 					return
 				}
-
-				switch header.Typeflag {
-				case tar.TypeDir:
-					if wipeDirs {
-						err = os.RemoveAll(fullpath)
-						if err != nil {
-							w.WriteHeader(http.StatusBadRequest)
-							w.Write([]byte(err.Error()))
-						}
-					}
-					err = os.MkdirAll(fullpath, os.FileMode(header.Mode))
-					if err != nil {
-						w.WriteHeader(http.StatusBadRequest)
-						w.Write([]byte(err.Error()))
-						return
-					}
-				case tar.TypeReg:
-					f, err := os.Create(fullpath)
-					if err != nil {
-						w.WriteHeader(http.StatusBadRequest)
-						w.Write([]byte(err.Error()))
-						return
-					}
-					defer f.Close()
-					f.Chmod(os.FileMode(header.Mode))
-					_, err = io.Copy(f, archive)
-					if err != nil {
-						w.WriteHeader(http.StatusBadRequest)
-						w.Write([]byte(err.Error()))
-						return
-					}
-				default:
-					if err != nil {
-						w.WriteHeader(http.StatusBadRequest)
-						w.Write([]byte(fmt.Sprintf("%s: Unsupported type, only directories and regular files are permitted", fullpath)))
-						return
-					}
+				err = extractFromArchive(fullpath, header)
+				if err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					w.Write([]byte(err.Error()))
+					return
 				}
+				klog.Infof("Recv: %s %s", rootDir, header.Name)
 			}
 
 			w.Write([]byte("OK"))
