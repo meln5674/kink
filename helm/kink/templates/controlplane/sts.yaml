@@ -74,7 +74,7 @@ spec:
                 export ETCDCTL_KEY=$(yq '.["client-transport-security"].["key-file"]' "${ETCD_CONFIG_FILE}")
                 export ETCDCTL_ENDPOINTS='https://{{ include "kink.controlplane.fullname" . }}:2379'
                 ETCD_NAME=$(cat "${ETCD_NAME_FILE}")
-                ETCD_ID=$(etcdctl member list --write-out=json | tee /dev/stderr | yq '.members[] | tee /dev/stderr | select(.name|test("'"${POD_NAME}"'")).ID')
+                ETCD_ID=$(etcdctl member list --write-out=json | tee /dev/stderr | yq '.members[] | select(.name|test("'"${POD_NAME}"'")).ID' | tee /dev/stderr)
                 if [ -z "${ETCD_ID}" ]; then
                   echo "This node is not an etcd member, not updating"
                 else
