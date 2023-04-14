@@ -1,6 +1,7 @@
 package util
 
 import (
+	"fmt"
 	"reflect"
 )
 
@@ -39,7 +40,8 @@ func overrideValue(dest, src reflect.Value) {
 			return
 		}
 		if v1.IsZero() {
-			v1.Set(reflect.New(t1).Elem())
+			v1.Set(reflect.MakeMap(t1))
+			fmt.Printf("v1: %#v %s\n", v1, t1)
 		}
 		iter := v2.MapRange()
 		for iter.Next() {
