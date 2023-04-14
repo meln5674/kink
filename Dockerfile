@@ -10,9 +10,11 @@ FROM ${GO_IMAGE} AS go
 
 WORKDIR /src/kink/
 
-COPY main.go go.mod go.sum Makefile /src/kink/
+COPY go.mod go.sum Makefile /src/kink/
+RUN go mod download
 COPY cmd /src/kink/cmd
 COPY pkg /src/kink/pkg
+COPY main.go /src/kink/main.go
 
 RUN make bin/kink
 
