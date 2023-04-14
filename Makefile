@@ -7,6 +7,9 @@ GO_FILES := $(shell find cmd/ -name '*.go') $(shell find pkg/ -name '*.go') go.m
 bin/kink: $(GO_FILES)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o bin/kink main.go
 
+bin/kink.dev: $(GO_FILES)
+	go build -o bin/kink.dev main.go
+
 lint:
 	go vet ./cmd/... ./pkg/... ./e2e/...
 	helm lint ./helm/kink/

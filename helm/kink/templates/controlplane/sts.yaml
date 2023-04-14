@@ -89,11 +89,11 @@ spec:
               mkdir -p '{{ $dataDir }}/server/manifests/'
               {{- if .Values.rke2.enabled }}
               cp /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/kink-local-path-provisioner.yaml '{{ $dataDir }}/server/manifests/'
-              {{- if .Values.sharedPersistence.enabled }}
+              {{- if or .Values.sharedPersistence.enabled .Values.sharedPersistence.enabledWithoutStorage }}
               cp /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/kink-shared-local-path-provisioner.yaml '{{ $dataDir }}/server/manifests/'
               {{- end }}
               {{- else }}
-              {{- if .Values.sharedPersistence.enabled }}
+              {{- if or .Values.sharedPersistence.enabled .Values.sharedPersistence.enabledWithoutStorage }}
               cp /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/kink-shared-local-path-provisioner.yaml '{{ $dataDir }}/server/manifests/'
               {{- end }}
               {{- end }}
@@ -185,6 +185,14 @@ spec:
           - '--tls-san=$(POD_NAME).{{ include "kink.controlplane.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}'
           {{- if .Values.controlplane.ingress.enabled }}
           {{- range .Values.controlplane.ingress.hosts }}
+          - '--tls-san={{ . }}'
+          {{- end }}
+          {{- end }}
+          {{- with .Values.controlplane.nodeportHost }}
+          - '--tls-san={{ . }}'
+          {{- end }}
+          {{- if .Values.fileGateway.ingress.enabled }}
+          {{- range .Values.fileGateway.ingress.hosts }}
           - '--tls-san={{ . }}'
           {{- end }}
           {{- end }}
@@ -295,7 +303,7 @@ spec:
             mountPath: /{{ . }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
-          {{- if .Values.sharedPersistence.enabled }}
+          {{- if or .Values.sharedPersistence.enabled .Values.sharedPersistence.enabledWithoutStorage }}
           {{- range .Values.sharedPersistence.mounts }}
           - name: shared-data
             mountPath: /{{ . }}
@@ -308,7 +316,35 @@ spec:
           {{- with .Values.controlplane.extraVolumeMounts }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
-
+        {{- if and .Values.fileGateway.enabled }}
+        - name: file-gateway
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+          - kink
+          - file-gateway
+          - recv
+          - --recv-listen=0.0.0.0:{{ .Values.fileGateway.service.port }}
+          - --recv-key={{ $dataDir }}/server/tls/serving-kube-apiserver.key
+          - --recv-cert={{ $dataDir }}/server/tls/serving-kube-apiserver.crt
+          - --recv-ca={{ $dataDir }}/server/tls/client-ca.crt
+          {{- range $mount := .Values.sharedPersistence.mounts }}
+          - --recv-allowed-dir={{ $mount }}
+          {{- end }}
+          ports:
+          - name: file-gateway
+            containerPort: {{ .Values.fileGateway.service.port }}
+            protocol: TCP
+          volumeMounts:
+          - name: data
+            mountPath: '{{ $dataDir }}'
+            subPath: '{{ $dataDir | trimPrefix "/" }}'
+          {{- range .Values.sharedPersistence.mounts }}
+          - name: shared-data
+            mountPath: /{{ . }}
+            subPath: {{ . | trimPrefix "/" }}
+          {{- end }}
+        {{- end }}
       {{- with .Values.controlplane.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -330,10 +366,12 @@ spec:
       - name: data
         emptyDir: {}
       {{- end }}
-      {{- if .Values.sharedPersistence.enabled }}
       - name: shared-data
+      {{- if .Values.sharedPersistence.enabled }}
         persistentVolumeClaim:
           claimName: {{ include "kink.fullname" . }}-shared
+      {{- else }}
+        emptyDir: {}
       {{- end }}
       {{- with .Values.extraVolumes }}
       {{- . | toYaml | nindent 6 }}

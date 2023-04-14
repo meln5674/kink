@@ -3,6 +3,7 @@ module github.com/meln5674/kink
 go 1.18
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.6.0
 	github.com/go-logr/logr v1.2.3
 	github.com/google/go-containerregistry v0.13.0
 	github.com/meln5674/gosh v0.0.0-20230127195542-cc145651d81c

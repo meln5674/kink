@@ -1,4 +1,4 @@
-{{- if .Values.controlplane.ingress.enabled -}}
+{{- if .Values.controlplane.ingress.enabled }}
 {{- $fullName := include "kink.controlplane.fullname" . -}}
 {{- if and .Values.controlplane.ingress.className (not (semverCompare ">=1.18-0" .Capabilities.KubeVersion.GitVersion)) }}
   {{- if not (hasKey .Values.controlplane.ingress.annotations "kubernetes.io/ingress.class") }}
@@ -49,5 +49,26 @@ spec:
               serviceName: {{ $fullName }}
               servicePort: api
               {{- end }}
+    {{- end }}
+    {{- if .Values.fileGateway.ingress.hosts }}
+    {{- range .Values.fileGateway.ingress.hosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            {{- if semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion }}
+            pathType: Prefix
+            {{- end }}
+            backend:
+              {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+              service:
+                name: {{ $fullName }}
+                port:
+                  name: api
+              {{- else }}
+              serviceName: {{ $fullName }}
+              servicePort: file-gateway
+              {{- end }}
+    {{- end }}
     {{- end }}
 {{- end }}

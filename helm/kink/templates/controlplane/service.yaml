@@ -22,6 +22,12 @@ spec:
     {{- include "kink.load-balancer.ingressHostPorts" . | nindent 4 }}
     {{- end }}
     {{- end }}
+    {{- if .Values.fileGateway.enabled }}
+    - port: {{ .Values.fileGateway.service.port }}
+      targetPort: file-gateway
+      protocol: TCP
+      name: file-gateway
+    {{- end }}
   selector:
     {{- include "kink.controlplane.selectorLabels" . | nindent 4 }}
 ---
@@ -46,6 +52,12 @@ spec:
     {{- if .Values.loadBalancer.ingress.enabled }}
     {{- include "kink.load-balancer.ingressHostPorts" . | nindent 4 }}
     {{- end }}
+    {{- end }}
+    {{- if .Values.fileGateway.enabled }}
+    - port: {{ .Values.fileGateway.service.port }}
+      targetPort: file-gateway
+      protocol: TCP
+      name: file-gateway
     {{- end }}
   selector:
     {{- include "kink.controlplane.selectorLabels" . | nindent 4 }}

@@ -389,6 +389,27 @@ sharedPersistence:
   mounts:
   - /opt/shared-local-path-provisioner
 
+  # If this is set, no PVC will be created on the host, but a RWX StorageClass will still be created on the guest cluster.
+  # This is only intended to support the use case of a single node with no persistence storage, using emptyDir's for all data
+  enabledWithoutStorage: false
+
+# The file gateway is intended to provide an efficient way to transfer files into the cluster.
+# Unlike a KinD cluster, there is no reasonable way to mount the current directory into the cluster.
+# Relying on kubectl cp relies on the control plane, which may be significantly bandwidth limited
+# compared to worker nodes.
+# The file gateway allows transmitting a tarball directly via a NodePort to pod that mounts the volume
+# described in the sharedPersistence section.
+fileGateway:
+  enabled: false
+  service:
+    type: ClusterIP
+    port: 8443
+  ingress:
+    # enabled: set by controlplane.ingress.enabled
+    hosts: []
+    # - host: chart-example.local
+    tls: []
+
 token:
   value: my-secret-token
   existingSecret:

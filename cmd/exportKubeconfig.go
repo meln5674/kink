@@ -107,20 +107,13 @@ func buildCompleteKubeconfig(ctx context.Context, path string) error {
 					klog.Warningf("Could not retrieve controlplane service to get nodePort, kubeconfig will not have an external context: %v", err)
 					return nil, nil
 				}
-				svc, err := k8sClient.CoreV1().Services(releaseNamespace).Get(ctx, releaseConfig.ControlplaneFullname, metav1.GetOptions{})
+				port, err := getNodePort(ctx, k8sClient, releaseNamespace, releaseConfig.ControlplaneFullname, "api", "controlplane")
 				if err != nil {
 					klog.Warningf("Could not retrieve controlplane service to get nodePort, kubeconfig will not have an external context: %v", err)
 					return nil, nil
 				}
-				var port int32
-				for _, portElem := range svc.Spec.Ports {
-					if portElem.Name == "api" {
-						port = portElem.NodePort
-						break
-					}
-				}
 				if port == 0 {
-					klog.Warningf("Controlplane service has not been assigned a NodePort yet, kubeconfig will not have an external context: %v", err)
+					klog.Warningf("Controlplane service has not been assigned a NodePort yet, kubeconfig will not have an external context")
 					return nil, nil
 				}
 				externalCluster.Server = fmt.Sprintf("https://%s:%d", releaseConfig.ControlplaneHostname, port)
@@ -189,4 +182,18 @@ func fetchKubeconfig(ctx context.Context, path string) error {
 		return errors.Wrap(err, "Could not extract kubeconfig from controlplane pod, make sure controlplane is healthy")
 	}
 	return nil
+}
+
+func getNodePort(ctx context.Context, k8sClient *kubernetes.Clientset, namespace, name, portName, errName string) (int32, error) {
+	svc, err := k8sClient.CoreV1().Services(releaseNamespace).Get(ctx, releaseConfig.ControlplaneFullname, metav1.GetOptions{})
+	if err != nil {
+		return 0, err
+	}
+	for _, portElem := range svc.Spec.Ports {
+		if portElem.Name == portName {
+			return portElem.NodePort, nil
+		}
+	}
+
+	return 0, fmt.Errorf("%s service %s/%s has no port %s", errName, namespace, name, portName)
 }

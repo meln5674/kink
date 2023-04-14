@@ -10,3 +10,19 @@ WARNING: RKE2 does not provider a storage provisioner by default, please --set l
 {{- if and (.Values.rke2.enabled) (not (gt (int .Values.controlplane.replicaCount) 1)) }}
 {{ fail "ERROR: RKE2 requires a High availability controlplane. Please --set controlplane.replicaCount=3 or greater" }}
 {{- end }}
+
+{{- if and (gt (add .Values.controlplane.replicaCount .Values.worker.replicaCount) 1) .Values.sharedPersistence.enabledWithoutStorage }}
+WARNING: sharedPersistence.enabledWithoutStorage will not work correctly with more than a single node. Are you sure this is what you want to do?
+{{- end }}
+
+{{- if and .Values.fileGateway.enabled (not .Values.sharedPersistence.enabled) }}
+{{ fail "ERROR: The file gateway depends on shared persistence. sharedPersistence.enabled must be true if fileGateway.enabled is true" }}
+{{- end }}
+
+{{- if and .Values.fileGateway.enabled (not .Values.fileGateway.ingress.enabled) (not .Values.controlplane.nodeportHost) }}
+{{ fail "ERROR: The file gateway must have either ingress or a node port host" }}
+{{- end }}
+
+{{- if and .Values.fileGateway.ingress.enabled (not .Values.controlplane.ingress.enabled) }}
+{{ fail "ERROR: Controlplane ingress must be enabled for file gateway ingress to work" }}
+{{- end }}

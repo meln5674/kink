@@ -80,13 +80,13 @@ spec:
             subPath: var/lib/kubelet
           {{- range .Values.worker.persistence.extraMounts }}
           - name: data
-            mountPath: /{{ . }}
+            mountPath: /{{ . | trimPrefix "/" }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
-          {{- if .Values.sharedPersistence.enabled }}
+          {{- if or .Values.sharedPersistence.enabled .Values.sharedPersistence.enabledWithoutStorage }}
           {{- range .Values.sharedPersistence.mounts }}
           - name: shared-data
-            mountPath: /{{ . }}
+            mountPath: /{{ . | trimPrefix "/" }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
           {{- end }}
@@ -204,7 +204,6 @@ spec:
           {{- with .Values.worker.extraVolumeMounts }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
-
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -226,10 +225,12 @@ spec:
       - name: data
         emptyDir: {}
       {{- end }}
-      {{- if .Values.sharedPersistence.enabled }}
       - name: shared-data
+      {{- if .Values.sharedPersistence.enabled }}
         persistentVolumeClaim:
           claimName: {{ include "kink.fullname" . }}-shared
+      {{- else }}
+        emptyDir: {}
       {{- end }}
       {{- with .Values.extraVolumes }}
       {{- . | toYaml | nindent 6 }}

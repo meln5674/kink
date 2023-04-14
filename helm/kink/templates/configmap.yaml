@@ -79,7 +79,16 @@ load-balancer.service.annotations: '{{ .Values.loadBalancer.service.annotations 
 load-balancer.ingress: '{{ include "kink.load-balancer.ingressYAML" . | fromYaml | toJson }}'
 
 lb-manager.fullname: {{ include "kink.lb-manager.fullname" . }}
- 
+
+{{- if .Values.fileGateway.enabled }}
+file-gateway.hostname: |-
+  {{ if .Values.controlplane.ingress.enabled }}
+  {{- index .Values.fileGateway.ingress.hosts 0 }}
+  {{- else if .Values.controlplane.nodeportHost }}
+  {{- .Values.controlplane.nodeportHost }}
+  {{- end }}
+{{- end }}
+
 rke2.enabled: '{{ .Values.rke2.enabled }}'
 {{- end -}}
 

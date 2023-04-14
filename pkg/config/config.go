@@ -250,6 +250,7 @@ type ReleaseConfig struct {
 	LoadBalancerServiceAnnotations StringMap           `json:"load-balancer.service.annotations"`
 	LoadBalancerIngress            LoadBalancerIngress `json:"load-balancer.ingress"`
 	LBManagerFullname              string              `json:"lb-manager.fullname"`
+	FileGatewayHostname            string              `json:"file-gateway.hostname"`
 	RKE2Enabled                    Bool                `json:"rke2.enabled"`
 }
 

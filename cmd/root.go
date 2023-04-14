@@ -51,8 +51,6 @@ var (
 	kubeconfig *k8srest.Config
 
 	doRepoUpdate bool
-
-// TODO: Get this by parsing config
 )
 
 // rootCmd represents the base command when called without any subcommands
