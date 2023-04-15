@@ -292,5 +292,5 @@ func (o *fileGatewayOpts) sendToFileGateway(ctx context.Context, tarStream io.Re
 		errMsg.WriteString(err.Error())
 		errMsg.WriteString(">")
 	}
-	return fmt.Errorf("%s", errMsg)
+	return fmt.Errorf("%s", errMsg.String())
 }
