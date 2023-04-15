@@ -55,83 +55,6 @@ var sendCmd = &cobra.Command{
 			dest = "/"
 		}
 
-		tmpKubeconfigFile, err := os.CreateTemp("", "*")
-		if err != nil {
-			return err
-		}
-		// defer os.Remove(tmpKubeconfigFile.Name())
-		err = fetchKubeconfig(ctx, tmpKubeconfigFile.Name())
-		if err != nil {
-			return err
-		}
-		err = buildCompleteKubeconfig(ctx, tmpKubeconfigFile.Name())
-		if err != nil {
-			return err
-		}
-
-		overrides := &clientcmd.ConfigOverrides{}
-
-		var tarHost string
-
-		if !releaseConfig.ControlplaneIsNodePort && fileGatewaySendIngressURL != "" {
-			overrides.ClusterInfo.TLSServerName = releaseConfig.FileGatewayHostname
-			overrides.ClusterInfo.Server = fileGatewaySendIngressURL
-		}
-
-		tmpKubeconfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-			&clientcmd.ClientConfigLoadingRules{
-				ExplicitPath: tmpKubeconfigFile.Name(),
-			},
-			overrides,
-		).ClientConfig()
-
-		klog.V(4).Infof("Generated file gateway config: %#v", tmpKubeconfig)
-
-		client, err := k8srest.HTTPClientFor(tmpKubeconfig)
-		if err != nil {
-			return err
-		}
-
-		query := url.Values{}
-		if fileGatewaySendGzip {
-			query.Set("gzip", "true")
-		}
-		if fileGatewaySendWipeDirs {
-			query.Set("wipe-dirs", "true")
-		}
-
-		var tarURL *url.URL
-
-		if releaseConfig.ControlplaneIsNodePort {
-			k8sClient, err := kubernetes.NewForConfig(kubeconfig)
-			if err != nil {
-				return err
-			}
-			port, err := getNodePort(ctx, k8sClient, releaseNamespace, releaseConfig.ControlplaneFullname, "file-gateway", "file gateway")
-			if err != nil {
-				return fmt.Errorf("Could not retrieve controlplane service to get nodePort")
-			}
-			if port == 0 {
-				return fmt.Errorf("Controlplane service has not been assigned a NodePort yet")
-			}
-			tarHost = fmt.Sprintf("%s:%d", releaseConfig.FileGatewayHostname, port)
-		} else if fileGatewaySendIngressURL != "" {
-			parsed, err := url.Parse(fileGatewaySendIngressURL)
-			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("parsing url %s", fileGatewaySendIngressURL))
-			}
-			tarHost = parsed.Host
-		} else {
-			tarHost = releaseConfig.FileGatewayHostname
-		}
-
-		tarURL = &url.URL{
-			Scheme:   "https",
-			Host:     tarHost,
-			Path:     dest,
-			RawQuery: query.Encode(),
-		}
-
 		paths := args
 
 		var tarStream io.Reader
@@ -234,29 +157,25 @@ var sendCmd = &cobra.Command{
 			close(tarErrChan)
 			tarStream = os.Stdin
 		}
-		resp, err := client.Post(tarURL.String(), "", tarStream)
-		if err != nil {
-			return err
-		}
+
+		reqErr := (&fileGatewayOpts{
+			dest:       dest,
+			gzip:       fileGatewaySendGzip,
+			wipeDirs:   fileGatewaySendWipeDirs,
+			ingressURL: fileGatewaySendIngressURL,
+		}).sendToFileGateway(ctx, tarStream)
+
 		tarErr := <-tarErrChan
-		if resp.StatusCode == http.StatusOK {
-			if tarErr != nil {
-				return tarErr
-			}
+		if reqErr == nil && tarErr == nil {
 			return nil
 		}
-		errMsg := strings.Builder{}
-		errMsg.WriteString(resp.Status)
-		_, err = io.Copy(&errMsg, resp.Body)
-		if err != nil {
-			errMsg.WriteString("<could not read response body: ")
-			errMsg.WriteString(err.Error())
-			errMsg.WriteString(">")
+		if reqErr != nil && tarErr != nil {
+			return fmt.Errorf("(While processing tarball: %v): %v", tarErr, reqErr)
 		}
-		if tarErr != nil {
-			return fmt.Errorf("(While processing tarball: %v): %s", tarErr, errMsg.String())
+		if reqErr != nil {
+			return reqErr
 		}
-		return fmt.Errorf("%s", errMsg)
+		return tarErr
 	},
 }
 
@@ -268,4 +187,107 @@ func init() {
 	sendCmd.Flags().StringArrayVar(&fileGatewaySendExclude, "send-exclude", []string{}, "Do not send paths which match this glob")
 	sendCmd.Flags().BoolVar(&fileGatewaySendWipeDirs, "send-wipe-dirs", false, "Instruct the file gateway to wipe and re-create any directories that appear in the tar archive")
 	sendCmd.Flags().StringVar(&fileGatewaySendIngressURL, "file-gateway-ingress-url", "", "If ingress is used for the file gateway, instead use this URL, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used.")
+}
+
+type fileGatewayOpts struct {
+	ingressURL string
+	gzip       bool
+	wipeDirs   bool
+	dest       string
+}
+
+func (o *fileGatewayOpts) sendToFileGateway(ctx context.Context, tarStream io.Reader) error {
+	tmpKubeconfigFile, err := os.CreateTemp("", "*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpKubeconfigFile.Name())
+	err = fetchKubeconfig(ctx, tmpKubeconfigFile.Name())
+	if err != nil {
+		return err
+	}
+	err = buildCompleteKubeconfig(ctx, tmpKubeconfigFile.Name())
+	if err != nil {
+		return err
+	}
+
+	overrides := &clientcmd.ConfigOverrides{}
+
+	var tarHost string
+
+	if !releaseConfig.ControlplaneIsNodePort && o.ingressURL != "" {
+		overrides.ClusterInfo.TLSServerName = releaseConfig.FileGatewayHostname
+		overrides.ClusterInfo.Server = o.ingressURL
+	}
+
+	tmpKubeconfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{
+			ExplicitPath: tmpKubeconfigFile.Name(),
+		},
+		overrides,
+	).ClientConfig()
+
+	klog.V(4).Infof("Generated file gateway config: %#v", tmpKubeconfig)
+
+	client, err := k8srest.HTTPClientFor(tmpKubeconfig)
+	if err != nil {
+		return err
+	}
+
+	query := url.Values{}
+	if fileGatewaySendGzip {
+		query.Set("gzip", "true")
+	}
+	if fileGatewaySendWipeDirs {
+		query.Set("wipe-dirs", "true")
+	}
+
+	var tarURL *url.URL
+
+	if releaseConfig.ControlplaneIsNodePort {
+		k8sClient, err := kubernetes.NewForConfig(kubeconfig)
+		if err != nil {
+			return err
+		}
+		port, err := getNodePort(ctx, k8sClient, releaseNamespace, releaseConfig.ControlplaneFullname, "file-gateway", "file gateway")
+		if err != nil {
+			return fmt.Errorf("Could not retrieve controlplane service to get nodePort")
+		}
+		if port == 0 {
+			return fmt.Errorf("Controlplane service has not been assigned a NodePort yet")
+		}
+		tarHost = fmt.Sprintf("%s:%d", releaseConfig.FileGatewayHostname, port)
+	} else if o.ingressURL != "" {
+		parsed, err := url.Parse(o.ingressURL)
+		if err != nil {
+			return errors.Wrap(err, fmt.Sprintf("parsing url %s", o.ingressURL))
+		}
+		tarHost = parsed.Host
+	} else {
+		tarHost = releaseConfig.FileGatewayHostname
+	}
+
+	tarURL = &url.URL{
+		Scheme:   "https",
+		Host:     tarHost,
+		Path:     o.dest,
+		RawQuery: query.Encode(),
+	}
+
+	resp, err := client.Post(tarURL.String(), "", tarStream)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	errMsg := strings.Builder{}
+	errMsg.WriteString(resp.Status)
+	_, err = io.Copy(&errMsg, resp.Body)
+	if err != nil {
+		errMsg.WriteString("<could not read response body: ")
+		errMsg.WriteString(err.Error())
+		errMsg.WriteString(">")
+	}
+	return fmt.Errorf("%s", errMsg)
 }

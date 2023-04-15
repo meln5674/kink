@@ -25,6 +25,10 @@ lint:
 
 
 test:
+	if [ "$$(cat /proc/sys/fs/inotify/max_user_instances)" -lt 512 ]; then \
+		echo "/proc/sys/fs/inotify/max_user_instances is set to $$(cat /proc/sys/fs/inotify/max_user_instances), please set to at least 512, otherwise, tests will fail" ; \
+		exit 1 ; \
+	fi
 	# Excessively long timeout is for github actions which are really slow
 	ginkgo run -p -vv --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
 

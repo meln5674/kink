@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"github.com/pkg/errors"
 
@@ -170,6 +172,18 @@ func fetchKubeconfig(ctx context.Context, path string) error {
 	kubeconfigPath := k3sKubeconfigPath
 	if releaseConfig.RKE2Enabled {
 		kubeconfigPath = rke2KubeconfigPath
+	}
+	// Absolute windows paths confuse kubectl, so we turn it into a relative path
+	if runtime.GOOS == "windows" && filepath.IsAbs(path) {
+		pwd, err := os.Getwd()
+		if err != nil {
+			return errors.Wrap(err, "get pwd")
+		}
+		rel, err := filepath.Rel(pwd, path)
+		if err != nil {
+			return errors.Wrap(err, fmt.Sprintf("converting %s to a relative path to %s", path, pwd))
+		}
+		path = rel
 	}
 	// TODO: Find a live pod first
 	kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, fmt.Sprintf("%s-0", releaseConfig.ControlplaneFullname), kubeconfigPath, path)
