@@ -17,6 +17,7 @@ release:
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
     controlplane.extraArgs[0]: '--disable=traefik'
+    controlplane.extraArgs[1]: '--disable=svclb'
 
     loadBalancer.enabled: 'true'
     kubeconfig.enabled: 'true'

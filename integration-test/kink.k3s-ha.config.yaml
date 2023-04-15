@@ -17,7 +17,9 @@ release:
     worker.persistence.enabled: "true"
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
+    fileGateway.enabled: "true"
     controlplane.extraArgs[0]: '--disable=traefik'
+    controlplane.extraArgs[1]: '--disable=svclb'
     controlplane.service.type: NodePort
     controlplane.nodeportHost: localhost
 

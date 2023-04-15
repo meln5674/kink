@@ -30,6 +30,11 @@ spec:
       {{- range .Values.controlplane.ingress.hosts }}
       - {{ . | quote }}
       {{- end }}
+      {{- if .Values.fileGateway.ingress.hosts }}
+      {{- range .Values.fileGateway.ingress.hosts }}
+      - {{ . | quote }}
+      {{- end }}
+      {{- end }}
   rules:
     {{- range .Values.controlplane.ingress.hosts }}
     - host: {{ . | quote }}
@@ -64,7 +69,7 @@ spec:
               service:
                 name: {{ $fullName }}
                 port:
-                  name: api
+                  name: file-gateway
               {{- else }}
               serviceName: {{ $fullName }}
               servicePort: file-gateway

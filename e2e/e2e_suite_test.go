@@ -45,8 +45,9 @@ var (
 	noDeps         = false
 	noRebuild      = false
 
-	kindConfigPath     = "../integration-test/kind.config.yaml"
-	kindKubeconfigPath = "../integration-test/kind.kubeconfig"
+	kindConfigPath           = "../integration-test/kind.config.yaml"
+	kindKubeconfigPath       = "../integration-test/kind.kubeconfig"
+	rootedKindKubeconfigPath = "integration-test/kind.kubeconfig"
 
 	kindOpts = KindOpts{
 		KindCommand:       []string{"/home/andrew/git//bin/kind"},
@@ -62,18 +63,14 @@ var (
 	kindKubeOpts = kubectl.KubeFlags{
 		Kubeconfig: kindOpts.KubeconfigOutPath,
 	}
+	rootedKindKubeOpts = kubectl.KubeFlags{
+		Kubeconfig: rootedKindKubeconfigPath,
+	}
 	helmOpts = helm.HelmFlags{
 		Command: []string{"helm"},
 	}
 
-	localPathProvisionerStorageRoot = "../integration-test"
-
-	localPathProvisionerStorageRel       = "local-path-provisioner"
-	localPathProvisionerStorage          = filepath.Join(localPathProvisionerStorageRoot, localPathProvisionerStorageRel)
-	localPathProvisionerMount            = "/var/local-path-provisioner"
-	sharedLocalPathProvisionerStorageRel = "shared-local-path-provisioner"
-	sharedLocalPathProvisionerStorage    = filepath.Join(localPathProvisionerStorageRoot, sharedLocalPathProvisionerStorageRel)
-	sharedLocalPathProvisionerMount      = "/var/shared-local-path-provisioner"
+	sharedLocalPathProvisionerMount = "/opt/shared-local-path-provisioner"
 
 	ingressNginxChartRepo    = "https://kubernetes.github.io/ingress-nginx"
 	ingressNginxChartName    = "ingress-nginx"
@@ -284,41 +281,29 @@ func (k *KindOpts) DeleteCluster() *gosh.Cmd {
 
 func InitKindCluster() {
 	pwd, err := os.Getwd()
+	repoRoot := filepath.Join(pwd, "..")
 	Expect(err).ToNot(HaveOccurred())
 	kindConfig, err := ioutil.ReadFile(kindConfigPath + ".tpl")
-	kindConfig = []byte(strings.ReplaceAll(string(kindConfig), "${PWD}", filepath.Join(pwd, "..")))
+	kindConfig = []byte(strings.ReplaceAll(string(kindConfig), "${PWD}", repoRoot))
 	ioutil.WriteFile(kindConfigPath, kindConfig, 0700)
 
 	if !noCreate {
 		ExpectRun(kindOpts.CreateCluster(kindConfigPath, kindKubeconfigPath))
 	}
-	DeferCleanup(func() {
-		if !noSuiteCleanup {
-			ExpectRun(kindOpts.DeleteCluster())
-		}
-	})
-	DeferCleanup(func() {
-		if !noCleanup || !noSuiteCleanup {
+	if !noSuiteCleanup {
+		DeferCleanup(func() {
 			CleanupPVCDirs()
-		}
-	})
+		})
+		DeferCleanup(func() {
+			ExpectRun(kindOpts.DeleteCluster())
+		})
+	}
 
 	if !noRebuild {
 		ExpectRun(kindOpts.LoadImages(beforeSuiteState.BuiltImage, beforeSuiteState.DefaultImage))
 	}
 
 	if !noDeps {
-		ExpectRun(
-			gosh.
-				Command(docker.Exec(
-					&dockerOpts,
-					kindOpts.ClusterName+"-control-plane",
-					[]string{},
-					"mkdir", "-p", sharedLocalPathProvisionerMount,
-				)...).
-				WithStreams(GinkgoOutErr),
-		)
-
 		lppKubeFlags := kindKubeOpts
 		lppKubeFlags.ConfigOverrides.Context.Namespace = "kube-system"
 		ExpectRun(
@@ -455,6 +440,13 @@ func (k *KinkFlags) PortForward(ku *kubectl.KubeFlags, chart *helm.ChartFlags, r
 	return k.Kink(ku, chart, release, "port-forward")
 }
 
+func (k *KinkFlags) FileGatewaySend(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, paths ...string) *gosh.Cmd {
+	args := []string{"file-gateway", "send"}
+	args = append(args, flags...)
+	args = append(args, paths...)
+	return k.Kink(ku, chart, release, args...)
+}
+
 type ExtraChart struct {
 	Chart    helm.ChartFlags
 	Release  helm.ReleaseFlags
@@ -482,24 +474,35 @@ type CaseWordpress struct {
 }
 
 type Case struct {
-	Name         string
-	LoadFlags    []string
-	Wordpress    CaseWordpress
-	ExtraCharts  []ExtraChart
-	Controlplane CaseControlplane
-	Disabled     bool
+	Name               string
+	LoadFlags          []string
+	Wordpress          CaseWordpress
+	ExtraCharts        []ExtraChart
+	Controlplane       CaseControlplane
+	Disabled           bool
+	FileGatewayEnabled bool
 }
 
 func (c Case) Run() bool {
 	if c.Disabled {
 		return false
 	}
-	return Describe(c.Name, func() {
+	return Describe(c.Name, Label(c.Name), func() {
 		It("should work", func() {
+			pwd, err := os.Getwd()
+			repoRoot := filepath.Join(pwd, "..")
+			Expect(err).ToNot(HaveOccurred())
+
 			kinkOpts := KinkFlags{
 				//Command:     []string{"go", "run", "../main.go"},
 				Command:     []string{"../bin/kink"},
 				ConfigPath:  filepath.Join("../integration-test", "kink."+c.Name+".config.yaml"),
+				ClusterName: c.Name,
+			}
+			rootedKinkOpts := KinkFlags{
+				//Command:     []string{"go", "run", "../main.go"},
+				Command:     []string{"bin/kink"},
+				ConfigPath:  filepath.Join("integration-test", "kink."+c.Name+".config.yaml"),
 				ClusterName: c.Name,
 			}
 			if _, gconfig := GinkgoConfiguration(); gconfig.Verbosity().GTE(gtypes.VerbosityLevelVerbose) {
@@ -509,6 +512,9 @@ func (c Case) Run() bool {
 
 			chart := helm.ChartFlags{
 				ChartName: "../helm/kink",
+			}
+			rootedChart := helm.ChartFlags{
+				ChartName: "./helm/kink",
 			}
 			release := helm.ReleaseFlags{
 				Set: map[string]string{
@@ -775,9 +781,10 @@ func (c Case) Run() bool {
 			}
 			Expect(httpPort).ToNot(Equal(0))
 			Expect(httpsPort).ToNot(Equal(0))
+
+			kubeOpts := kindKubeOpts
+			kubeOpts.ConfigOverrides.Context.Namespace = c.Name
 			func() {
-				kubeOpts := kindKubeOpts
-				kubeOpts.ConfigOverrides.Context.Namespace = c.Name
 				portForward := gosh.
 					Command(kubectl.PortForward(&kubectlOpts, &kubeOpts, fmt.Sprintf("svc/kink-%s-lb", c.Name), map[string]string{portForwardPort: fmt.Sprintf("%d", httpPort)})...).
 					WithStreams(GinkgoOutErr)
@@ -793,8 +800,6 @@ func (c Case) Run() bool {
 
 			By("Interacting with the released service over the Port Forwarded LoadBalancer (HTTPS)")
 			func() {
-				kubeOpts := kindKubeOpts
-				kubeOpts.ConfigOverrides.Context.Namespace = c.Name
 				portForward := gosh.
 					Command(kubectl.PortForward(&kubectlOpts, &kubeOpts, fmt.Sprintf("svc/kink-%s-lb", c.Name), map[string]string{portForwardPort: fmt.Sprintf("%d", httpsPort)})...).
 					WithStreams(GinkgoOutErr)
@@ -863,6 +868,43 @@ func (c Case) Run() bool {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
+			if !c.FileGatewayEnabled {
+				return
+			}
+
+			By("Sending a file through the file gateway")
+			ExpectRun(rootedKinkOpts.FileGatewaySend(
+				&rootedKindKubeOpts,
+				&rootedChart,
+				&release,
+				[]string{
+					"--send-dest", sharedLocalPathProvisionerMount,
+					"--send-exclude", "integration-test/volumes", // This will cause an infinite loop of copying to itself
+					"--send-exclude", "integration-test/log", // This is being written to while the test is running, meaning it will be bigger than its header, thus fail
+					"--file-gateway-ingress-url", "https://localhost",
+					"-v11",
+				},
+				"Makefile",
+				"integration-test",
+			).WithStreams(GinkgoOutErr).WithWorkingDir(repoRoot))
+
+			By("Checking the files were received")
+			ExpectRun(gosh.Command(
+				kubectl.Exec(
+					&kubectlOpts,
+					&kubeOpts,
+					fmt.Sprintf("kink-%s-controlplane-0", c.Name),
+					false, false,
+					"cat", filepath.Join(sharedLocalPathProvisionerMount, "Makefile"))...,
+			).WithStreams(GinkgoOutErr))
+			ExpectRun(gosh.Command(
+				kubectl.Exec(
+					&kubectlOpts,
+					&kubeOpts,
+					fmt.Sprintf("kink-%s-controlplane-0", c.Name),
+					false, false,
+					"ls", filepath.Join(sharedLocalPathProvisionerMount, "Makefile"))...,
+			).WithStreams(GinkgoOutErr))
 		})
 
 	})
@@ -871,15 +913,10 @@ func (c Case) Run() bool {
 func CleanupPVCDirs() {
 	pwd, err := os.Getwd()
 	Expect(err).ToNot(HaveOccurred())
-	ExpectRun(
-		gosh.Command(docker.Run(&dockerOpts,
-			[]string{
-				"--rm",
-				"-i",
-				"-v", fmt.Sprintf("%s:%s", filepath.Join(pwd, localPathProvisionerStorageRoot), "/tmp/integration-test"),
-			}, "centos:7", "bash", "-c", fmt.Sprintf("rm -rf /tmp/integration-test/%s /tmp/integration-test/%s", localPathProvisionerStorageRel, sharedLocalPathProvisionerStorageRel),
-		)...).WithStreams(GinkgoOutErr),
-	)
+	repoRoot := filepath.Join(pwd, "..")
+	cleaner := gosh.Command("./hack/clean-tests.sh").WithStreams(GinkgoOutErr)
+	cleaner.Cmd.Dir = repoRoot
+	ExpectRun(cleaner)
 }
 
 var _ = Case{
@@ -929,6 +966,7 @@ var _ = Case{
 	Controlplane: CaseControlplane{
 		External: true,
 	},
+	FileGatewayEnabled: true,
 }.Run()
 
 var _ = Case{
@@ -981,6 +1019,8 @@ var _ = Case{
 		External: true,
 		NodePort: true,
 	},
+
+	FileGatewayEnabled: true,
 }.Run()
 
 var _ = Case{

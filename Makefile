@@ -11,9 +11,17 @@ bin/kink.dev: $(GO_FILES)
 	go build -o bin/kink.dev main.go
 
 lint:
+	yq integration-test/*.yaml >/dev/null
 	kind create cluster --name=helm-hog || true
 	go vet ./cmd/... ./pkg/... ./e2e/...
-	( cd helm/kink ; helm-hog test --batch --parallel=0 --kubectl-flags=--context=kind-helm-hog,-v4 --keep-reports -v11)
+	shopt -s globstar ; \
+	if ! ( cd helm/kink ; helm-hog test --batch --parallel=0 --kubectl-flags=--context=kind-helm-hog,-v4 --keep-reports); then \
+		for x in /tmp/helm-hog-*/**; do \
+			echo "$$x"; \
+			cat "$$x"; \
+		done ; \
+		exit 1 ; \
+	fi
 
 
 test:

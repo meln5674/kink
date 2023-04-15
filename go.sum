@@ -219,8 +219,8 @@ github.com/mailru/easyjson v0.7.6/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJ
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/matttproud/golang_protobuf_extensions v1.0.2 h1:hAHbPm5IJGijwng3PWk09JkG9WeqChjprR5s9bBZ+OM=
 github.com/matttproud/golang_protobuf_extensions v1.0.2/go.mod h1:BSXmuO+STAnVfrANrmjBb36TMTDstsz7MSK+HVaYKv4=
-github.com/meln5674/gosh v0.0.0-20230127195542-cc145651d81c h1:LN8JLqX6XNsTDGQ8Wl0l/UJp97arsjvNhsawsAP71FE=
-github.com/meln5674/gosh v0.0.0-20230127195542-cc145651d81c/go.mod h1:ZEvBGjiPHZWR1l61SoCJcduUQ/tFKw9iQ+X86i5engI=
+github.com/meln5674/gosh v0.0.0-20230415003237-f28301fa54e1 h1:4MGOQZxRYB8Wh4OJN1aK80JBE6ccSozUxr4aFh0xlJ0=
+github.com/meln5674/gosh v0.0.0-20230415003237-f28301fa54e1/go.mod h1:ZEvBGjiPHZWR1l61SoCJcduUQ/tFKw9iQ+X86i5engI=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
 github.com/mitchellh/go-homedir v1.1.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrkLzIz1N1q0pr0=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=

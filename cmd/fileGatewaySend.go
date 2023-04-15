@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 	k8srest "k8s.io/client-go/rest"
@@ -24,10 +25,11 @@ import (
 )
 
 var (
-	fileGatewaySendDest     string
-	fileGatewaySendGzip     bool
-	fileGatewaySendWipeDirs bool
-	fileGatewaySendExclude  []string
+	fileGatewaySendDest       string
+	fileGatewaySendGzip       bool
+	fileGatewaySendWipeDirs   bool
+	fileGatewaySendExclude    []string
+	fileGatewaySendIngressURL string
 )
 
 // sendCmd represents the send command
@@ -67,12 +69,23 @@ var sendCmd = &cobra.Command{
 			return err
 		}
 
+		overrides := &clientcmd.ConfigOverrides{}
+
+		var tarHost string
+
+		if !releaseConfig.ControlplaneIsNodePort && fileGatewaySendIngressURL != "" {
+			overrides.ClusterInfo.TLSServerName = releaseConfig.FileGatewayHostname
+			overrides.ClusterInfo.Server = fileGatewaySendIngressURL
+		}
+
 		tmpKubeconfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 			&clientcmd.ClientConfigLoadingRules{
 				ExplicitPath: tmpKubeconfigFile.Name(),
 			},
-			&clientcmd.ConfigOverrides{},
+			overrides,
 		).ClientConfig()
+
+		klog.V(4).Infof("Generated file gateway config: %#v", tmpKubeconfig)
 
 		client, err := k8srest.HTTPClientFor(tmpKubeconfig)
 		if err != nil {
@@ -87,7 +100,7 @@ var sendCmd = &cobra.Command{
 			query.Set("wipe-dirs", "true")
 		}
 
-		var tarHost string
+		var tarURL *url.URL
 
 		if releaseConfig.ControlplaneIsNodePort {
 			k8sClient, err := kubernetes.NewForConfig(kubeconfig)
@@ -102,11 +115,17 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("Controlplane service has not been assigned a NodePort yet")
 			}
 			tarHost = fmt.Sprintf("%s:%d", releaseConfig.FileGatewayHostname, port)
+		} else if fileGatewaySendIngressURL != "" {
+			parsed, err := url.Parse(fileGatewaySendIngressURL)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("parsing url %s", fileGatewaySendIngressURL))
+			}
+			tarHost = parsed.Host
 		} else {
 			tarHost = releaseConfig.FileGatewayHostname
 		}
 
-		tarURL := url.URL{
+		tarURL = &url.URL{
 			Scheme:   "https",
 			Host:     tarHost,
 			Path:     dest,
@@ -155,6 +174,7 @@ var sendCmd = &cobra.Command{
 						} else {
 							flag = tar.TypeReg
 						}
+						klog.V(4).Infof("Sending: %s", path)
 						archive.WriteHeader(&tar.Header{
 							Typeflag: flag,
 							Name:     path,
@@ -218,22 +238,25 @@ var sendCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		err = <-tarErrChan
-		if err != nil {
-			return err
-		}
+		tarErr := <-tarErrChan
 		if resp.StatusCode == http.StatusOK {
+			if tarErr != nil {
+				return tarErr
+			}
 			return nil
 		}
 		errMsg := strings.Builder{}
 		errMsg.WriteString(resp.Status)
 		_, err = io.Copy(&errMsg, resp.Body)
 		if err != nil {
-			errMsg.WriteString("<could not ready response body: ")
+			errMsg.WriteString("<could not read response body: ")
 			errMsg.WriteString(err.Error())
 			errMsg.WriteString(">")
 		}
-		return fmt.Errorf("%s", errMsg.String())
+		if tarErr != nil {
+			return fmt.Errorf("(While processing tarball: %v): %s", tarErr, errMsg.String())
+		}
+		return fmt.Errorf("%s", errMsg)
 	},
 }
 
@@ -244,4 +267,5 @@ func init() {
 	sendCmd.Flags().BoolVar(&fileGatewaySendGzip, "send-gzip", false, "If filepaths are provided, compress them when sending. If reading from standard input, expect it to be compressed. (equivalent to tar's -x)")
 	sendCmd.Flags().StringArrayVar(&fileGatewaySendExclude, "send-exclude", []string{}, "Do not send paths which match this glob")
 	sendCmd.Flags().BoolVar(&fileGatewaySendWipeDirs, "send-wipe-dirs", false, "Instruct the file gateway to wipe and re-create any directories that appear in the tar archive")
+	sendCmd.Flags().StringVar(&fileGatewaySendIngressURL, "file-gateway-ingress-url", "", "If ingress is used for the file gateway, instead use this URL, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used.")
 }

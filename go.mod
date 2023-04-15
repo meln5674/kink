@@ -6,7 +6,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.6.0
 	github.com/go-logr/logr v1.2.3
 	github.com/google/go-containerregistry v0.13.0
-	github.com/meln5674/gosh v0.0.0-20230127195542-cc145651d81c
+	github.com/meln5674/gosh v0.0.0-20230415003237-f28301fa54e1
 	github.com/onsi/ginkgo/v2 v2.7.0
 	github.com/onsi/gomega v1.24.1
 	github.com/pkg/errors v0.9.1

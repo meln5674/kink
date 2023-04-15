@@ -17,6 +17,10 @@ release:
     worker.persistence.enabled: "true"
     sharedPersistence.enabled: "true"
     sharedPersistence.storageClassName: "shared-local-path"
+    fileGateway.enabled: "true"
+    fileGateway.ingress.enabled: "true"
+    fileGateway.ingress.hosts[0]: "k3s-file-gateway.cluster.local"
+    fileGateway.ingress.tls[0].hosts[0]: "k3s-file-gateway.cluster.local"
     extraEnv[0].name: foo
     extraEnv[0].value: bar
     controlplane.extraEnv[0].name: qux
