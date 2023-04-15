@@ -78,6 +78,9 @@ var sendCmd = &cobra.Command{
 					var addToArchive func(string, os.FileInfo) error
 
 					addToArchive = func(path string, info os.FileInfo) error {
+						// Tar always has /, this should fix windows paths
+						path = strings.Join(strings.Split(path, string(filepath.Separator)), "/")
+
 						for _, exclude := range fileGatewaySendExclude {
 							matches, err := doublestar.PathMatch(exclude, path)
 							if err != nil {
