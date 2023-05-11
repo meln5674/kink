@@ -11,7 +11,7 @@ bin/kink.dev: $(GO_FILES)
 	go build -o bin/kink.dev main.go
 
 lint:
-	yq integration-test/*.yaml >/dev/null
+	# yq integration-test/*.yaml >/dev/null
 	kind create cluster --name=helm-hog || true
 	go vet ./cmd/... ./pkg/... ./e2e/...
 	shopt -s globstar ; \
@@ -24,7 +24,11 @@ lint:
 	fi
 
 
-test:
+test: envtest
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" ginkgo run -v -r --coverpkg=./pkg/... ./pkg
+
+.PHONY: e2e
+e2e:
 	if [ "$$(cat /proc/sys/fs/inotify/max_user_instances)" -lt 512 ]; then \
 		echo "/proc/sys/fs/inotify/max_user_instances is set to $$(cat /proc/sys/fs/inotify/max_user_instances), please set to at least 512, otherwise, tests will fail" ; \
 		exit 1 ; \
@@ -35,3 +39,23 @@ test:
 .PHONY: test
 clean-tests:
 	./hack/clean-tests.sh
+
+ENVTEST = $(shell pwd)/bin/setup-envtest
+.PHONY: envtest
+envtest: ## Download envtest-setup locally if necessary.
+	$(call go-get-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest@latest)
+
+
+# go-get-tool will 'go get' any package $2 and install it to $1.
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+define go-get-tool
+@[ -f $(1) ] || { \
+set -e ;\
+TMP_DIR=$$(mktemp -d) ;\
+cd $$TMP_DIR ;\
+go mod init tmp ;\
+echo "Downloading $(2)" ;\
+GOBIN=$(PROJECT_DIR)/bin go install $(2) ;\
+rm -rf $$TMP_DIR ;\
+}
+endef

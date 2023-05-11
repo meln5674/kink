@@ -1,6 +1,6 @@
 ARG BASE_IMAGE=docker.io/library/debian:bullseye-slim
 
-ARG GO_IMAGE=docker.io/library/golang:1.18
+ARG GO_IMAGE=docker.io/library/golang:1.19
 
 ARG DOCKER_IMAGE=docker.io/library/docker:20
 

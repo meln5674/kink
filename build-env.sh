@@ -76,4 +76,4 @@ DOCKER_RUN_ARGS+=(
     -e KIND_CLUSTER_NAME
 )
 
-exec docker run "${DOCKER_RUN_ARGS[@]}" "${IMAGE}" "${COMMAND[@]}"
+exec docker run "${DOCKER_RUN_ARGS[@]}" ${EXTRA_BUILD_ENV_ARGS} "${IMAGE}" "${COMMAND[@]}"
