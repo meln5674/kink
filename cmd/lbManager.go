@@ -795,10 +795,11 @@ func (i *IngressControllerRun) CreateOrUpdateHostIngress(guestClass string) erro
 	if len(i.Targets[guestClass].Spec.Rules) == 0 {
 		i.Log.Info("Removing host ingress with no rules")
 		err := i.Host.Delete(i.Ctx, i.Targets[guestClass])
-		if kerrors.IsNotFound(err) {
-			return nil
+		if !kerrors.IsNotFound(err) {
+			return err
 		}
-		return err
+		delete(i.Targets, guestClass)
+		return nil
 	}
 	i.Log.Info("Regenerating host ingress")
 	_, err := controllerutil.CreateOrUpdate(i.Ctx, i.Host, i.Targets[guestClass], func() error {
