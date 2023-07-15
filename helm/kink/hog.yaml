@@ -28,8 +28,11 @@ variables:
   shared-persistence:
       'off': []
       'on': ['shared-persistence']
+  extra-spec:
+    'disabled': []
+    'enabled': ['extra-spec']
 
-variableOrder: [architecture,controlplane,lb-manager,shared-persistence,file-gateway] 
+variableOrder: [architecture,controlplane,lb-manager,shared-persistence,file-gateway,extra-spec] 
 
 # To only allow combinations of Mappings when other combinations are also present, provide a map from rule names to their "if" (combination to match) and "then" (combinations to require if "if" is matched)
 requirements:

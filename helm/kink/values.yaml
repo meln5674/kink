@@ -129,6 +129,8 @@ controlplane:
   extraArgs: []
   extraVolumes: []
   extraVolumeMounts: []
+  extraControllerSpec: {}
+  extraPodSpec: {}
 
 # Configuration for worker nodes ("agents")
 worker:
@@ -211,6 +213,8 @@ worker:
   extraArgs: []
   extraVolumes: []
   extraVolumeMounts: []
+  extraControllerSpec: {}
+  extraPodSpec: {}
 
 # If enabled, an additional deployment will be created which watches the guest cluster
 #   for NodePort and LoadBalancer type services, and dynamically manages a service on

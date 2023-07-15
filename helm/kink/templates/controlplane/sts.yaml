@@ -386,6 +386,9 @@ spec:
       {{- with .Values.controlplane.extraVolumes }}
       {{- . | toYaml | nindent 6 }}
       {{- end }}
+      {{- with .Values.controlplane.extraPodSpec }}
+      {{- . | toYaml | nindent 6 }}
+      {{- end }}
   volumeClaimTemplates:
   {{- if .Values.controlplane.persistence.enabled }}
   - metadata:
@@ -410,5 +413,8 @@ spec:
       resources:
         requests:
           storage: {{ .Values.kubelet.persistence.size }}
+  {{- end }}
+  {{- with .Values.controlplane.extraControllerSpec }}
+  {{- . | toYaml | nindent 2 }}
   {{- end }}
 
