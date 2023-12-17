@@ -163,6 +163,7 @@ var (
 )
 
 func ExpectRun(cmd gosh.Commander) {
+	GinkgoHelper()
 	Expect(cmd.Run()).To(Succeed())
 }
 
@@ -215,7 +216,7 @@ func BuildImage() {
 			*/
 			gosh.And(
 				gosh.
-					Command("../build-env.sh", "make", "-C", "..", "bin/kink").
+					Command("../build-env.sh", "make", "-C", "..", "bin/kink.cover").
 					WithParentEnvAnd(map[string]string{"IMAGE_TAG": beforeSuiteState.ImageTag}),
 				gosh.
 					Command(docker.Build(&dockerOpts, beforeSuiteState.BuiltImage, "..", "-f", "../standalone.Dockerfile")...).
@@ -292,15 +293,18 @@ func InitKindCluster() {
 	}
 	if !noSuiteCleanup {
 		DeferCleanup(func() {
-			CleanupPVCDirs()
+			ExpectRun(kindOpts.DeleteCluster())
 		})
 		DeferCleanup(func() {
-			ExpectRun(kindOpts.DeleteCluster())
+			CleanupPVCDirs()
 		})
 	}
 
-	if !noRebuild {
-		ExpectRun(kindOpts.LoadImages(beforeSuiteState.BuiltImage, beforeSuiteState.DefaultImage))
+	if !noLoad {
+		ExpectRun(kindOpts.LoadImages(
+			beforeSuiteState.BuiltImage,
+			beforeSuiteState.DefaultImage,
+		))
 	}
 
 	if !noDeps {
@@ -369,6 +373,7 @@ type KinkFlags struct {
 	Command     []string
 	ConfigPath  string
 	ClusterName string
+	Env         map[string]string
 }
 
 func (k *KinkFlags) Kink(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, args ...string) *gosh.Cmd {
@@ -392,7 +397,11 @@ func (k *KinkFlags) Kink(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release 
 	}
 	cmd = append(cmd, release.ValuesFlags()...)
 	cmd = append(cmd, args...)
-	return gosh.Command(cmd...).UsingProcessGroup()
+	command := gosh.Command(cmd...).UsingProcessGroup()
+	if k.Env != nil {
+		command = command.WithParentEnvAnd(k.Env)
+	}
+	return command
 }
 
 func (k *KinkFlags) CreateCluster(ku *kubectl.KubeFlags, targetKubeconfigPath string, controlplaneIngressURL string, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
@@ -481,13 +490,15 @@ type Case struct {
 	Controlplane       CaseControlplane
 	Disabled           bool
 	FileGatewayEnabled bool
+
+	Focus bool
 }
 
 func (c Case) Run() bool {
 	if c.Disabled {
 		return false
 	}
-	return Describe(c.Name, Label(c.Name), func() {
+	f := func() {
 		It("should work", func() {
 			pwd, err := os.Getwd()
 			repoRoot := filepath.Join(pwd, "..")
@@ -495,13 +506,14 @@ func (c Case) Run() bool {
 
 			kinkOpts := KinkFlags{
 				//Command:     []string{"go", "run", "../main.go"},
-				Command:     []string{"../bin/kink"},
+				Command:     []string{"../bin/kink.cover"},
 				ConfigPath:  filepath.Join("../integration-test", "kink."+c.Name+".config.yaml"),
 				ClusterName: c.Name,
+				Env:         map[string]string{"GOCOVERDIR": filepath.Join("..", os.Getenv("GOCOVERDIR"))},
 			}
 			rootedKinkOpts := KinkFlags{
 				//Command:     []string{"go", "run", "../main.go"},
-				Command:     []string{"bin/kink"},
+				Command:     []string{"bin/kink.cover"},
 				ConfigPath:  filepath.Join("integration-test", "kink."+c.Name+".config.yaml"),
 				ClusterName: c.Name,
 			}
@@ -907,7 +919,12 @@ func (c Case) Run() bool {
 			).WithStreams(GinkgoOutErr))
 		})
 
-	})
+	}
+	if c.Focus {
+		return FDescribe(c.Name, Label(c.Name), f)
+	} else {
+		return Describe(c.Name, Label(c.Name), f)
+	}
 }
 
 func CleanupPVCDirs() {

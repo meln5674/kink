@@ -19,9 +19,13 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/meln5674/gosh"
+	"github.com/meln5674/rflag"
 
+	"github.com/meln5674/kink/pkg/config"
 	cfg "github.com/meln5674/kink/pkg/config"
+	"github.com/meln5674/kink/pkg/docker"
 	"github.com/meln5674/kink/pkg/helm"
+	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 const (
@@ -29,29 +33,96 @@ const (
 	ClusterNameEnv   = "KINK_CLUSTER_NAME"
 )
 
-var (
-	// configPath is the path to the config file provided as a flag
-	configPath string
-	// rawConfig is the configuration as parsed from configPath
-	rawConfig cfg.RawConfig
-	// configOverrides are the overrides provided via the command line
-	configOverrides cfg.Config
-	// config is the fully realized config ready to be passed to module functions
-	config cfg.Config
+type kinkArgsT struct {
+	ConfigPath         string `rflag:"name=config,usage=Path to KinK config file to use instead of arguments"`
+	ReleaseConfigMount string `rflag:"usage=Path to where release configmap is mounted. If provided,, this will be used instead of fetching from helm"`
 
-	// releaseConfigMount is the location of the mounted configmap as provided on the command line
-	releaseConfigMount string
+	HelmCommand    []string `rflag:"usage=Command to execute for helm"`
+	KubectlCommand []string `rflag:"usage=Command to execute for kubectl"`
+	DockerCommand  []string `rflag:"usage=Command to execute for docker"`
 
-	// releaseNamespace is the namespace of the helm release for the guest cluster
-	releaseNamespace string
+	ChartName       string `rflag:"name=chart,usage=Name of KinK Helm Chart"`
+	ChartVersion    string `rflag:"usage=Version of the chart to install"`
+	ChartRepository string `rflag:"name=repository=url,usage=URL of KinK Helm Chart repository"`
+	DoRepoUpdate    bool   `rflag:"usage=Update the helm repo before upgrading. Note that if a new chart version has become availabe since install or last upgrade,, this will result in upgrading the chart. If this unacceptable,, set this to false,, or use --chart-version to pin a specific version"`
 
-	// releaseConfig are the details of the last release of the guest cluster needed by local commands
-	releaseConfig cfg.ReleaseConfig
+	ClusterName string `rflag:"name=name,usage=Name of the kink cluster"`
 
-	kubeconfig *k8srest.Config
+	ValuesFiles []string          `rflag:"usage=Extra values.yaml files to use when creating cluster"`
+	Set         map[string]string `rflag:"usage=Extra field overrides to use when creating cluster"`
+	SetString   map[string]string `rflag:"usage=Extra field overrides to use when creating cluster,, forced interpreted as strings"`
 
-	doRepoUpdate bool
-)
+	Kubeconfig          string `rflag:"usage=Path to the kubeconfig file to use for CLI requests."`
+	KubernetesOverrides clientcmd.ConfigOverrides
+
+	// TODO: Add flags for docker
+}
+
+func (kinkArgsT) Defaults() kinkArgsT {
+	clusterName := os.Getenv(ClusterNameEnv)
+	if clusterName == "" {
+		clusterName = cfg.DefaultClusterName
+	}
+	return kinkArgsT{
+		ConfigPath: os.Getenv(ClusterConfigEnv),
+
+		HelmCommand:    []string{"helm"},
+		KubectlCommand: []string{"kubectl"},
+		DockerCommand:  []string{"docker"},
+
+		ChartName:       "kink",
+		ChartRepository: "https://meln5674.github.io/kink",
+		DoRepoUpdate:    true,
+
+		ClusterName: clusterName,
+
+		ValuesFiles: []string{},
+		Set:         map[string]string{},
+		SetString:   map[string]string{},
+
+		Kubeconfig: os.Getenv(clientcmd.RecommendedConfigPathEnvVar),
+	}
+}
+
+func (k kinkArgsT) ConfigOverrides() cfg.Config {
+	return cfg.Config{
+		Helm: helm.HelmFlags{
+			Command: k.HelmCommand,
+		},
+		Kubectl: kubectl.KubectlFlags{
+			Command: k.KubectlCommand,
+		},
+		Docker: docker.DockerFlags{
+			Command: k.DockerCommand,
+		},
+		Chart: helm.ChartFlags{
+			ChartName:     k.ChartName,
+			Version:       k.ChartVersion,
+			RepositoryURL: k.ChartRepository,
+		},
+		Release: helm.ClusterReleaseFlags{
+			ClusterName: k.ClusterName,
+			Values:      k.ValuesFiles,
+			Set:         k.Set,
+			SetString:   k.SetString,
+		},
+		Kubernetes: kubectl.KubeFlags{
+			Kubeconfig:      k.Kubeconfig,
+			ConfigOverrides: k.KubernetesOverrides,
+		},
+	}
+}
+
+var kinkArgs = kinkArgsT{}.Defaults()
+
+type resolvedConfigT struct {
+	KinkConfig       cfg.Config
+	ReleaseNamespace string
+	ReleaseConfig    cfg.ReleaseConfig
+	Kubeconfig       *k8srest.Config
+}
+
+var resolvedConfig resolvedConfigT
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -61,9 +132,24 @@ var rootCmd = &cobra.Command{
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error { return loadConfig() },
-	SilenceUsage:      true,
+	SilenceUsage: true,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		resolved, err := loadConfig(&kinkArgs)
+		if err != nil {
+			return err
+		}
+		resolvedConfig = *resolved
+
+		return nil
+	},
 }
+
+// exitCode is the exit code that main() will exit with.
+// This is a global variable so that os.Exit does not need to be called until main would otherwise exit
+// If an error is returned by any command, this value is ignored and instead klog.Fatal is used instead.
+// As a result, this is mainly used when a specific error code needs to be forwarded, such as from exec
+// and sh.
+var exitCode int
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
@@ -72,6 +158,7 @@ func Execute() {
 	if err != nil {
 		klog.Fatal(err)
 	}
+	os.Exit(exitCode)
 }
 
 func init() {
@@ -79,30 +166,8 @@ func init() {
 	klog.InitFlags(klogFlags)
 	rootCmd.PersistentFlags().AddGoFlagSet(klogFlags)
 
-	kinkconfig := os.Getenv(ClusterConfigEnv)
-	clusterName := os.Getenv(ClusterNameEnv)
-	if clusterName == "" {
-		clusterName = cfg.DefaultClusterName
-	}
-
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", kinkconfig, "Path to KinK config file to use instead of arguments")
-	rootCmd.PersistentFlags().StringVar(&releaseConfigMount, "release-config-mount", "", "Path to where release configmap is mounted. If provided, this will be used instead of fetching from helm")
-
-	rootCmd.PersistentFlags().StringSliceVar(&configOverrides.Helm.Command, "helm-command", []string{"helm"}, "Command to execute for helm")
-	rootCmd.PersistentFlags().StringSliceVar(&configOverrides.Kubectl.Command, "kubectl-command", []string{"kubectl"}, "Command to execute for kubectl")
-	rootCmd.PersistentFlags().StringSliceVar(&configOverrides.Docker.Command, "docker-command", []string{"docker"}, "Command to execute for docker")
-
-	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.ChartName, "chart", "kink", "Name of KinK Helm Chart")
-	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.Version, "chart-version", "", "Version of the chart to install")
-	rootCmd.PersistentFlags().StringVar(&configOverrides.Chart.RepositoryURL, "repository-url", "https://meln5674.github.io/kink", "URL of KinK Helm Chart repository")
-	rootCmd.Flags().BoolVar(&doRepoUpdate, "repo-update", true, "Update the helm repo before upgrading. Note that if a new chart version has become availabe since install or last upgrade, this will result in upgrading the chart. If this unacceptable, set this to false, or use --chart-version to pin a specific version")
-	rootCmd.PersistentFlags().StringVar(&configOverrides.Release.ClusterName, "name", clusterName, "Name of the kink cluster")
-	rootCmd.PersistentFlags().StringArrayVar(&configOverrides.Release.Values, "values", []string{}, "Extra values.yaml files to use when creating cluster")
-	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.Set, "set", map[string]string{}, "Extra field overrides to use when creating cluster")
-	rootCmd.PersistentFlags().StringToStringVar(&configOverrides.Release.SetString, "set-string", map[string]string{}, "Extra field overrides to use when creating cluster, forced interpreted as strings")
-	// TODO: Add flags for docker
-	rootCmd.PersistentFlags().StringVar(&configOverrides.Kubernetes.Kubeconfig, "kubeconfig", "", "Path to the kubeconfig file to use for CLI requests.")
-	clientcmd.BindOverrideFlags(&configOverrides.Kubernetes.ConfigOverrides, rootCmd.PersistentFlags(), clientcmd.RecommendedConfigOverrideFlags(""))
+	rflag.MustRegister(rflag.ForPFlag(rootCmd.PersistentFlags()), "", &kinkArgs)
+	clientcmd.BindOverrideFlags(&kinkArgs.KubernetesOverrides, rootCmd.PersistentFlags(), clientcmd.RecommendedConfigOverrideFlags(""))
 }
 
 type devNullT struct{}
@@ -115,53 +180,59 @@ func (d devNullT) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-func loadConfig() error {
+func loadConfig(args *kinkArgsT) (*resolvedConfigT, error) {
+	var cfg resolvedConfigT
 	var err error
-	if configPath != "" {
-		err = rawConfig.LoadFromFile(configPath)
+
+	if args.ConfigPath != "" {
+		var rawConfig config.RawConfig
+		err = rawConfig.LoadFromFile(args.ConfigPath)
 		if err != nil {
-			return fmt.Errorf("Configuration file %s is invalid or missing: %s", configPath, err)
+			return nil, fmt.Errorf("Configuration file %s is invalid or missing: %s", args.ConfigPath, err)
 		}
-		config = rawConfig.Format()
+		cfg.KinkConfig = rawConfig.Format()
 	}
 
-	klog.V(1).Infof("%#v", configOverrides)
-	config.Override(&configOverrides)
-	klog.V(1).Infof("%#v", config)
+	overrides := args.ConfigOverrides()
+	klog.V(1).Infof("%#v", &overrides)
+	cfg.KinkConfig.Override(&overrides)
+	klog.V(1).Infof("%#v", cfg.KinkConfig)
 
-	kubeconfigPath := config.Kubernetes.Kubeconfig
-	if kubeconfigPath == "" {
-		kubeconfigPath = os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
-	}
-	releaseNamespace, _, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{
-			ExplicitPath: kubeconfigPath,
+			ExplicitPath: args.Kubeconfig,
 		},
-		&config.Kubernetes.ConfigOverrides,
-	).Namespace()
+		&cfg.KinkConfig.Kubernetes.ConfigOverrides,
+	)
+	cfg.Kubeconfig, err = clientConfig.ClientConfig()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if releaseConfigMount != "" {
-		err = releaseConfig.LoadFromMount(releaseConfigMount)
+	cfg.ReleaseNamespace, _, err = clientConfig.Namespace()
+	if err != nil {
+		return nil, err
+	}
+
+	if args.ReleaseConfigMount != "" {
+		err = cfg.ReleaseConfig.LoadFromMount(args.ReleaseConfigMount)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	} else {
 		doc := corev1.ConfigMap{}
-		if !config.Chart.IsLocalChart() {
+		if !cfg.KinkConfig.Chart.IsLocalChart() {
 			klog.Info("Ensuring helm repo exists...")
-			repoAdd := helm.RepoAdd(&config.Helm, &config.Chart)
+			repoAdd := helm.RepoAdd(&cfg.KinkConfig.Helm, &cfg.KinkConfig.Chart)
 			err = gosh.
 				Command(repoAdd...).
 				WithStreams(gosh.ForwardOutErr).
 				Run()
 			if err != nil {
-				return err
+				return nil, err
 			}
-			if doRepoUpdate {
-				repoUpdate := helm.RepoUpdate(&config.Helm, config.Chart.RepoName())
+			if args.DoRepoUpdate {
+				repoUpdate := helm.RepoUpdate(&cfg.KinkConfig.Helm, cfg.KinkConfig.Chart.RepoName())
 				klog.Info("Updating chart repo...")
 				err = gosh.
 					Command(repoUpdate...).
@@ -169,7 +240,7 @@ func loadConfig() error {
 					WithStreams(gosh.ForwardOutErr).
 					Run()
 				if err != nil {
-					return err
+					return nil, err
 				}
 			} else {
 				klog.Info("Chart repo update skipped by flag")
@@ -177,7 +248,12 @@ func loadConfig() error {
 		}
 		loadedConfig := false
 		err = gosh.
-			Command(helm.TemplateCluster(&config.Helm, &config.Chart, &config.Release, &config.Kubernetes)...).
+			Command(helm.TemplateCluster(
+				&cfg.KinkConfig.Helm,
+				&cfg.KinkConfig.Chart,
+				&cfg.KinkConfig.Release,
+				&cfg.KinkConfig.Kubernetes,
+			)...).
 			WithStreams(
 				gosh.ForwardErr,
 				gosh.FuncOut(func(r io.Reader) error {
@@ -197,11 +273,11 @@ func loadConfig() error {
 						if doc.APIVersion != "v1" || doc.Kind != "ConfigMap" {
 							continue
 						}
-						if doc.Namespace != releaseNamespace && doc.Namespace != "" {
+						if doc.Namespace != cfg.ReleaseNamespace && doc.Namespace != "" {
 							klog.Warning("Found a configmap other than the one we're looking for")
 							continue
 						}
-						ok, err := releaseConfig.LoadFromConfigMap(&doc)
+						ok, err := cfg.ReleaseConfig.LoadFromConfigMap(&doc)
 						if err != nil {
 							// If we don't flush its stdout, the helm template process never exits on windows
 							io.Copy(devNull, r)
@@ -219,22 +295,13 @@ func loadConfig() error {
 			).
 			Run()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !loadedConfig {
-			return fmt.Errorf("Did not find the expected cluster configmap in the helm template output. This could be a bug or your release values are invalid")
+			return nil, fmt.Errorf("Did not find the expected cluster configmap in the helm template output. This could be a bug or your release values are invalid")
 		}
 	}
-	klog.V(1).Infof("%#v", releaseConfig)
-	kubeconfig, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{
-			ExplicitPath: kubeconfigPath,
-		},
-		&config.Kubernetes.ConfigOverrides,
-	).ClientConfig()
-	if err != nil {
-		return err
-	}
+	klog.V(1).Infof("%#v", cfg.ReleaseConfig)
 
-	return nil
+	return &cfg, nil
 }

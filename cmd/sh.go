@@ -1,13 +1,14 @@
 /*
 Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-
 */
 package cmd
 
 import (
+	"context"
 	"strings"
 
 	"github.com/meln5674/gosh"
+	"github.com/meln5674/rflag"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +31,8 @@ clean up the temporary kubeconfig once it has exited.
 
 If no arguments are provided, this instead runs an interactive shell, allowing you to, for example
 interactively use tools like kubectl and helm to interact with your isolated cluster.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		var sh *gosh.Cmd
 		if len(args) == 0 {
 			sh = gosh.Shell("")
@@ -38,22 +40,30 @@ interactively use tools like kubectl and helm to interact with your isolated clu
 		} else {
 			sh = gosh.Shell(strings.Join(args, " "))
 		}
-		execWithGateway(sh)
+		maybeExitCode, err := execWithGateway(context.Background(), sh, &shArgs.ExecArgs, &resolvedConfig)
+		if err != nil {
+			return err
+		}
+		if maybeExitCode != nil {
+			exitCode = *maybeExitCode
+		}
+		return nil
 	},
 }
 
+type shArgsT struct {
+	ExecArgs execArgsT `rflag:""`
+}
+
+func (shArgsT) Defaults() shArgsT {
+	return shArgsT{
+		ExecArgs: execArgsT{}.Defaults(),
+	}
+}
+
+var shArgs = shArgsT{}.Defaults()
+
 func init() {
 	rootCmd.AddCommand(shCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// shCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// shCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	shCmd.Flags().StringVar(&exportedKubeconfigPath, "exported-kubeconfig", "", "Path to kubeconfig exported during `create cluster` or `export kubeconfig` instead of copying it again")
-	shCmd.Flags().BoolVar(&portForwardForExec, "port-forward", true, "Set up a localhost port forward for the controlplane during execution. Set to false if using a background `kink port-forward` command.")
+	rflag.MustRegister(rflag.ForPFlag(shCmd.Flags()), "", &shArgs)
 }

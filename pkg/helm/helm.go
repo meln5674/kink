@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	ClusterLabel  = "kink.meln5674.github.com/cluster"
-	ReleasePrefix = "kink-"
+	ClusterLabel     = "kink.meln5674.github.com/cluster"
+	ClusterNodeLabel = "kink.meln5674.github.com/cluster-node"
+	ReleasePrefix    = "kink-"
 )
 
 var (
@@ -177,22 +178,6 @@ func (r *ClusterReleaseFlags) Override(r2 *ClusterReleaseFlags) {
 	util.Override(&r.UpgradeFlags, &r2.UpgradeFlags)
 }
 
-func (r *ClusterReleaseFlags) ExtraLabels() map[string]string {
-	return map[string]string{
-		ClusterLabel: r.ClusterName,
-	}
-}
-
-func (r *ClusterReleaseFlags) ExtraLabelFlags() []string {
-	cmd := []string{}
-	for k, v := range r.ExtraLabels() {
-		for _, component := range []string{"worker", "controlplane"} {
-			cmd = append(cmd, "--set", fmt.Sprintf("%s.extraLabels.%s=%s", component, strings.ReplaceAll(strings.ReplaceAll(k, ",", `\,`), ".", `\.`), v))
-		}
-	}
-	return cmd
-}
-
 func RepoAdd(h *HelmFlags, c *ChartFlags) []string {
 	return h.Helm(&kubectl.KubeFlags{}, "repo", "add", c.RepoName(), c.RepositoryURL)
 }
@@ -216,7 +201,7 @@ func Upgrade(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags)
 
 func UpgradeCluster(h *HelmFlags, c *ChartFlags, r *ClusterReleaseFlags, k *kubectl.KubeFlags) []string {
 	raw := r.Raw()
-	return append(Upgrade(h, c, &raw, k), r.ExtraLabelFlags()...)
+	return Upgrade(h, c, &raw, k)
 }
 
 func Template(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {
@@ -229,7 +214,7 @@ func Template(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags
 
 func TemplateCluster(h *HelmFlags, c *ChartFlags, r *ClusterReleaseFlags, k *kubectl.KubeFlags) []string {
 	raw := r.Raw()
-	return append(Template(h, c, &raw, k), r.ExtraLabelFlags()...)
+	return Template(h, c, &raw, k)
 }
 
 func Delete(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) []string {

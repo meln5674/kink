@@ -332,3 +332,10 @@ func ConfigSetCluster(k *KubectlFlags, ku *KubeFlags, cluster string, data map[s
 	}
 	return Kubectl(k, ku, args...)
 }
+
+func Delete(k *KubectlFlags, ku *KubeFlags, kind string, flags ...string) []string {
+	args := make([]string, 0, 2+len(flags))
+	args = append(args, "delete", kind)
+	args = append(args, flags...)
+	return Kubectl(k, ku, args...)
+}

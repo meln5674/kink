@@ -11,8 +11,8 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/meln5674/gosh"
+	"github.com/meln5674/rflag"
 	"github.com/spf13/cobra"
-	"k8s.io/klog/v2"
 )
 
 var (
@@ -22,11 +22,6 @@ var (
 const (
 	k3sKubeconfigPath  = "/etc/rancher/k3s/k3s.yaml"
 	rke2KubeconfigPath = "/etc/rancher/rke2/rke2.yaml"
-)
-
-var (
-	exportedKubeconfigPath string
-	portForwardForExec     bool
 )
 
 // execCmd represents the exec command
@@ -43,80 +38,85 @@ to a temporary file that will connect to it, and executes your shell command, th
 clean up the temporary kubeconfig once it has exited.
 
 This command does not perform variable replacements or glob expansions. To do this, use 'kink sh'`,
-	Run: func(cmd *cobra.Command, args []string) {
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
-			klog.Fatal("A command is required")
+			return errors.New("A command is required")
 		}
 
-		execWithGateway(gosh.Command(args...))
+		maybeExitCode, err := execWithGateway(context.Background(), gosh.Command(args...), &execArgs, &resolvedConfig)
+
+		if err != nil {
+			return err
+		}
+		if maybeExitCode != nil {
+			exitCode = *maybeExitCode
+		}
+		return nil
 	},
 }
 
-func init() {
-	rootCmd.AddCommand(execCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// execCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// execCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	execCmd.Flags().StringVar(&exportedKubeconfigPath, "exported-kubeconfig", "", "Path to kubeconfig exported during `create cluster` or `export kubeconfig` instead of copying it again")
-	execCmd.Flags().BoolVar(&portForwardForExec, "port-forward", true, "Set up a localhost port forward for the controlplane during execution. Set to false if using a background `kink port-forward` command.")
+type execArgsT struct {
+	PortForwardArgs        portForwardArgsT `rflag:""`
+	PortForward            bool             `rflag:"usage=Set up a localhost port forward for the controlplane during execution. Set to false if using a background 'kink port-forward' command or running in-cluster"`
+	ExportedKubeconfigPath string           `rflag:"name=exported-kubeconfig,usage=Path to kubeconfig exported during 'create cluster' or 'export kubeconfig' instead of copying it again"`
 }
 
-func execWithGateway(toExec *gosh.Cmd) {
-	ec, err := func() (*int, error) {
-		ctx := context.TODO()
+func (execArgsT) Defaults() execArgsT {
+	return execArgsT{
+		PortForwardArgs: portForwardArgsT{}.Defaults(),
+		PortForward:     true,
+	}
+}
 
-		var err error
+var execArgs = execArgsT{}.Defaults()
 
-		if exportedKubeconfigPath == "" {
-			kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
-			if err != nil {
-				return nil, err
-			}
-			defer kubeconfig.Close()
-			defer os.Remove(kubeconfig.Name())
-			err = fetchKubeconfig(ctx, kubeconfig.Name())
-			if err != nil {
-				return nil, err
-			}
-			exportedKubeconfigPath = kubeconfig.Name()
-		}
+func init() {
+	rootCmd.AddCommand(execCmd)
+	rflag.MustRegister(rflag.ForPFlag(execCmd.Flags()), "", &execArgs)
+}
 
-		if portForwardForExec {
-			_, stopPortForward, err := portForward(ctx, true)
-			if err != nil {
-				return nil, err
-			}
-			defer stopPortForward()
-		}
-
-		err = toExec.
-			WithContext(ctx).
-			WithParentEnvAnd(map[string]string{
-				"KUBECONFIG": exportedKubeconfigPath,
-			}).
-			WithStreams(gosh.ForwardAll).
-			Run()
-		var exitError *exec.ExitError
-		if errors.As(err, &exitError) {
-			ec := exitError.ProcessState.ExitCode()
-			return &ec, nil
-		}
+func execWithGateway(ctx context.Context, toExec *gosh.Cmd, args *execArgsT, cfg *resolvedConfigT) (exitCode *int, err error) {
+	exportedKubeconfigPath := args.ExportedKubeconfigPath
+	if exportedKubeconfigPath == "" {
+		kubeconfig, err := os.CreateTemp("", "kink-kubeconfig-*")
 		if err != nil {
 			return nil, err
 		}
-		return nil, nil
-	}()
+		defer kubeconfig.Close()
+		defer os.Remove(kubeconfig.Name())
+		err = fetchKubeconfig(ctx, cfg, kubeconfig.Name())
+		if err != nil {
+			return nil, err
+		}
+		exportedKubeconfigPath = kubeconfig.Name()
+	}
+
+	if args.PortForward {
+		portForwardCtx, cancelPortForward := context.WithCancel(ctx)
+		stopPortForward, err := startPortForward(portForwardCtx, true, &args.PortForwardArgs, cfg)
+		if err != nil {
+			cancelPortForward()
+			return nil, err
+		}
+		defer stopPortForward()
+		defer cancelPortForward()
+	}
+
+	err = toExec.
+		WithContext(ctx).
+		WithParentEnvAnd(map[string]string{
+			"KUBECONFIG": exportedKubeconfigPath,
+		}).
+		WithStreams(gosh.ForwardAll).
+		Run()
+	var exitError *exec.ExitError
+	if errors.As(err, &exitError) {
+		ec := exitError.ProcessState.ExitCode()
+		return &ec, nil
+	}
 	if err != nil {
-		klog.Fatal(err)
+		return nil, err
 	}
-	if ec != nil {
-		os.Exit(*ec)
-	}
+	return nil, nil
 }

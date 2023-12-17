@@ -1,5 +1,7 @@
 all: lint bin/kink test
 
+SHELL := /bin/bash
+
 .PHONY: lint test
 
 GO_FILES := $(shell find cmd/ -name '*.go') $(shell find pkg/ -name '*.go') go.mod go.sum
@@ -9,6 +11,12 @@ bin/kink: $(GO_FILES)
 
 bin/kink.dev: $(GO_FILES)
 	go build -o bin/kink.dev main.go
+
+bin/kink.cover: $(GO_FILES)
+	go build -o bin/kink.cover --cover main.go
+
+vet:
+	go vet ./cmd/... ./pkg/... ./e2e/...
 
 lint:
 	# yq integration-test/*.yaml >/dev/null
@@ -25,16 +33,21 @@ lint:
 
 
 test: envtest
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" ginkgo run -v -r --coverpkg=./pkg/... ./pkg
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" ginkgo run -v -r --coverprofile=cover.out --coverpkg=./pkg/... ./pkg
+	go tool cover -html=cover.out -o cover.html
+
+GOCOVERDIR=integration-test/gocov
 
 .PHONY: e2e
-e2e:
-	if [ "$$(cat /proc/sys/fs/inotify/max_user_instances)" -lt 512 ]; then \
-		echo "/proc/sys/fs/inotify/max_user_instances is set to $$(cat /proc/sys/fs/inotify/max_user_instances), please set to at least 512, otherwise, tests will fail" ; \
-		exit 1 ; \
-	fi
+e2e: bin/kink.cover
+	./hack/inotify-check.sh
+	rm -rf $(GOCOVERDIR)
+	mkdir -p $(GOCOVERDIR)
 	# Excessively long timeout is for github actions which are really slow
-	ginkgo run -p -vv --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
+	set -o pipefail ; GOCOVERDIR=$(GOCOVERDIR) ginkgo run -vv --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
+	go tool covdata percent -i=$(GOCOVERDIR)
+	go tool covdata textfmt -i=$(GOCOVERDIR) -o cover.e2e.out
+	go tool cover -html=cover.e2e.out -o cover.e2e.html
 
 .PHONY: test
 clean-tests:

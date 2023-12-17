@@ -87,6 +87,7 @@ file-gateway.hostname: |-
   {{- else if .Values.controlplane.nodeportHost }}
   {{- .Values.controlplane.nodeportHost }}
   {{- end }}
+file-gateway.containerPort: '{{ .Values.fileGateway.service.port }}'
 {{- end }}
 
 rke2.enabled: '{{ .Values.rke2.enabled }}'

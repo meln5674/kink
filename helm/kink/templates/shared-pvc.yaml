@@ -3,6 +3,8 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "kink.fullname" . }}-shared
+  annotations:
+    "helm.sh/resource-policy": keep
   labels:
     {{- include "kink.labels" . | nindent 4 }}
 spec:

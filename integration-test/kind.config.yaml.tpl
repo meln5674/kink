@@ -6,18 +6,29 @@ nodes:
   # To test PVCs, we need at least two host mounts for the local provisioner
   - hostPath: ${PWD}/integration-test/volumes/var/shared-local-path-provisioner
     containerPath: /var/shared-local-path-provisioner
-  - hostPath: ${PWD}/integration-test/volumes/var/local-path-provisioner
-    containerPath: /var/local-path-provisioner
-  # Not necessary, but this should be faster than using the overlayfs
-  - hostPath: ${PWD}/integration-test/volumes/var/lib/kubelet
-    containerPath: /var/lib/kubelet
-  - hostPath: ${PWD}/integration-test/volumes/var/lib/containerd
-    containerPath: /var/lib/containerd
   # These are needed in order to run in-cluster tests 
   - hostPath: ${PWD}
     containerPath: /src/kink
   - hostPath: /var/run/docker.sock
     containerPath: /var/run/docker.sock
+  # Not necessary, but this should be faster than using the overlayfs
+  - hostPath: ${PWD}/integration-test/volumes/var/local-path-provisioner
+    containerPath: /var/local-path-provisioner
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/kubelet/
+    containerPath: /var/lib/kubelet
+  - hostPath: ${PWD}/integration-test/volumes/var/log/
+    containerPath: /var/log/
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/containerd/io.containerd.runtime.v1.linux
+    containerPath: /var/lib/containerd/io.containerd.runtime.v1.linux
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/containerd/io.containerd.snapshotter.v1.btrfs
+    containerPath: /var/lib/containerd/io.containerd.snapshotter.v1.btrfs
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots
+    containerPath: /var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/containerd/io.containerd.snapshotter.v1.native/snapshots
+    containerPath: /var/lib/containerd/io.containerd.snapshotter.v1.native/snapshots
+  - hostPath: ${PWD}/integration-test/volumes/var/lib/containerd/io.containerd.runtime.v2.task
+    containerPath: /var/lib/containerd/io.containerd.runtime.v2.task
+  
   extraPortMappings:
   # To test controlplane ingress 
   - containerPort: 80

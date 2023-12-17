@@ -1,3 +1,5 @@
+clusterName: # Defaults to the release name, without the kink- prefix
+
 # All pods will use the same image
 image:
   repository: ghcr.io/meln5674/kink
@@ -20,8 +22,7 @@ kubelet:
     - ReadWriteOnce
     storageClassName: 
 
-# Extra global configuration to apply to all pods
-
+extraLabels: {}
 extraEnv: []
 extraArgs: []
 extraVolumes: []

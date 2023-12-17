@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/meln5674/gosh"
+	"github.com/meln5674/rflag"
 
 	"github.com/meln5674/kink/pkg/kubectl"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,63 +28,122 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var (
-	kubeconfigToExportPath string
-	controlplaneIngressURL string
-)
-
-// exportKubeconfigCmd represents the exportKubeconfig command
+// exportKubeconfigCmd represents the export kubeconfig command
 var exportKubeconfigCmd = &cobra.Command{
-	Use:   "kubeconfig",
-	Short: "Exports cluster kubeconfig",
-	Run: func(cmd *cobra.Command, args []string) {
-		err := func() error {
-			var err error
-			ctx := context.TODO()
-			err = fetchKubeconfig(ctx, kubeconfigToExportPath)
-			if err != nil {
-				return err
-			}
-			err = buildCompleteKubeconfig(ctx, kubeconfigToExportPath)
-			if err != nil {
-				return err
-			}
-			return nil
-		}()
-
-		if err != nil {
-			klog.Fatal(err)
-		}
+	Use:          "kubeconfig",
+	Short:        "Exports cluster kubeconfig",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return exportKubeconfigToPath(context.Background(), &exportKubeconfigArgs, &resolvedConfig)
 	},
 }
 
-func init() {
-	exportCmd.AddCommand(exportKubeconfigCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// exportKubeconfigCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	exportKubeconfigCmd.Flags().StringVar(&kubeconfigToExportPath, "out-kubeconfig", "./kink.kubeconfig", "Path to export kubeconfig to")
-	exportKubeconfigCmd.Flags().StringVar(&controlplaneIngressURL, "controlplane-ingress-url", "", "If ingress is used for the controlplane, instead use this URL, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used.")
+type exportKubeconfigCommonArgsT struct {
+	ControlplaneIngressURL string `rflag:"usage=If ingress is used for the controlplane,, instead use this URL,, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used."`
 }
 
-func buildCompleteKubeconfig(ctx context.Context, path string) error {
-	exportedKubeconfig, err := clientcmd.LoadFromFile(path)
+func (exportKubeconfigCommonArgsT) Defaults() exportKubeconfigCommonArgsT {
+	return exportKubeconfigCommonArgsT{}
+}
+
+type exportKubeconfigArgsT struct {
+	Common                 exportKubeconfigCommonArgsT `rflag:""`
+	KubeconfigToExportPath string                      `rflag:"name=out-kubeconfig,usage=Path to export kubeconfig to"`
+}
+
+func (exportKubeconfigArgsT) Defaults() exportKubeconfigArgsT {
+	return exportKubeconfigArgsT{
+		KubeconfigToExportPath: "./kink.kubeconfig",
+		Common:                 exportKubeconfigCommonArgsT{}.Defaults(),
+	}
+}
+
+var exportKubeconfigArgs = exportKubeconfigArgsT{}.Defaults()
+
+func init() {
+	exportCmd.AddCommand(exportKubeconfigCmd)
+	rflag.MustRegister(rflag.ForPFlag(exportKubeconfigCmd.Flags()), "", &exportKubeconfigArgs)
+}
+
+func exportKubeconfig(ctx context.Context, w io.Writer, args *exportKubeconfigCommonArgsT, cfg *resolvedConfigT) error {
+	f, err := os.CreateTemp("", "*-kubeconfig")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(f.Name())
+	err = f.Close()
+	if err != nil {
+		return err
+	}
+
+	err = fetchKubeconfig(ctx, cfg, f.Name())
+	if err != nil {
+		return err
+	}
+	return buildAndWriteCompleteKubeconfig(
+		ctx, cfg,
+		f.Name(), w,
+		cfg.ReleaseConfig.ControlplaneHostname, "api", "controlplane", int(cfg.ReleaseConfig.ControlplanePort),
+		args.ControlplaneIngressURL, "",
+	)
+}
+
+func exportKubeconfigToPath(ctx context.Context, args *exportKubeconfigArgsT, cfg *resolvedConfigT) error {
+	f, err := os.Create(args.KubeconfigToExportPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return exportKubeconfig(ctx, f, &args.Common, cfg)
+}
+
+func externalControlplaneURL(ctx context.Context, cfg *resolvedConfigT, hostname, nodeportName, errName string, serverURLOverride, tlsServerNameOverride string) (serverURL string, tlsServerName string, _ error) {
+	if hostname == "" {
+		return "", "", fmt.Errorf("Neither ingress nor a nodeport host has been set for the %s, kubeconfig will not have an external context", errName)
+	}
+	if cfg.ReleaseConfig.ControlplaneIsNodePort {
+		k8sClient, err := kubernetes.NewForConfig(cfg.Kubeconfig)
+		if err != nil {
+			return "", "", errors.Wrapf(err, "Could not retrieve %s service to get nodePort, kubeconfig will not have an external context", errName)
+		}
+		port, err := getNodePort(ctx, k8sClient, cfg, cfg.ReleaseNamespace, cfg.ReleaseConfig.ControlplaneFullname, nodeportName, errName)
+		if err != nil {
+			return "", "", errors.Wrapf(err, "Could not retrieve %s service to get nodePort, kubeconfig will not have an external context", errName)
+		}
+		if port == 0 {
+			return "", "", fmt.Errorf("%s service has not been assigned a NodePort yet, kubeconfig will not have an external context", errName)
+		}
+
+		return fmt.Sprintf("https://%s:%d", hostname, port), hostname, nil
+	}
+	serverURL = serverURLOverride
+	tlsServerName = tlsServerNameOverride
+	if serverURL == "" {
+		serverURL = fmt.Sprintf("https://%s", hostname)
+	}
+	if tlsServerName == "" {
+		if hostname == "" {
+			tlsServerName = cfg.ReleaseConfig.ControlplaneFullname
+		} else {
+			tlsServerName = hostname
+		}
+	}
+
+	return serverURL, tlsServerName, nil
+}
+
+func buildCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, path string, hostname, nodeportName, errName string, port int, serverURL, tlsServerName string) (*clientcmdapi.Config, error) {
+	exportedKubeconfig, err := clientcmd.LoadFromFile(path)
+	if err != nil {
+		return nil, err
+	}
 	defaultCluster, ok := exportedKubeconfig.Clusters["default"]
 	if !ok {
-		return fmt.Errorf("Extracted kubeconfig did not contain expected cluster")
+		return nil, fmt.Errorf("Extracted kubeconfig did not contain expected cluster")
 	}
 	inClusterCluster := defaultCluster.DeepCopy()
-	inClusterHostname := fmt.Sprintf("%s.%s.svc.cluster.local", releaseConfig.ControlplaneFullname, releaseNamespace)
-	inClusterURL := fmt.Sprintf("https://%s:%v", inClusterHostname, releaseConfig.ControlplanePort)
+	inClusterHostname := fmt.Sprintf("%s.%s.svc.cluster.local", cfg.ReleaseConfig.ControlplaneFullname, cfg.ReleaseNamespace)
+	inClusterURL := fmt.Sprintf("https://%s:%v", inClusterHostname, port)
 	inClusterCluster.Server = inClusterURL
 	inClusterCluster.TLSServerName = inClusterHostname
 
@@ -90,52 +151,24 @@ func buildCompleteKubeconfig(ctx context.Context, path string) error {
 
 	defaultContext, ok := exportedKubeconfig.Contexts["default"]
 	if !ok {
-		return fmt.Errorf("Extracted kubeconfig did not contain expected context")
+		return nil, fmt.Errorf("Extracted kubeconfig did not contain expected context")
 	}
 
 	inClusterContext := defaultContext.DeepCopy()
 	inClusterContext.Cluster = "in-cluster"
 	exportedKubeconfig.Contexts["in-cluster"] = inClusterContext
 
-	externalCluster, err := func() (*clientcmdapi.Cluster, error) {
-		if releaseConfig.ControlplaneHostname == "" {
-			klog.Warningf("Neither ingress nor a nodeport host has been set for the controlplane, kubeconfig will not have an external context: %v", err)
-			return nil, nil
-		} else {
-			externalCluster := defaultCluster.DeepCopy()
-			if releaseConfig.ControlplaneIsNodePort {
-				k8sClient, err := kubernetes.NewForConfig(kubeconfig)
-				if err != nil {
-					klog.Warningf("Could not retrieve controlplane service to get nodePort, kubeconfig will not have an external context: %v", err)
-					return nil, nil
-				}
-				port, err := getNodePort(ctx, k8sClient, releaseNamespace, releaseConfig.ControlplaneFullname, "api", "controlplane")
-				if err != nil {
-					klog.Warningf("Could not retrieve controlplane service to get nodePort, kubeconfig will not have an external context: %v", err)
-					return nil, nil
-				}
-				if port == 0 {
-					klog.Warningf("Controlplane service has not been assigned a NodePort yet, kubeconfig will not have an external context")
-					return nil, nil
-				}
-				externalCluster.Server = fmt.Sprintf("https://%s:%d", releaseConfig.ControlplaneHostname, port)
-				externalCluster.TLSServerName = releaseConfig.ControlplaneHostname
-			} else if controlplaneIngressURL != "" {
-				externalCluster.Server = controlplaneIngressURL
-				externalCluster.TLSServerName = releaseConfig.ControlplaneHostname
-			} else {
-				externalCluster.Server = fmt.Sprintf("https://%s", releaseConfig.ControlplaneHostname)
-				externalCluster.TLSServerName = ""
-			}
-
-			return externalCluster, nil
-		}
-	}()
+	externalClusterURL, externalClusterTLSServerName, err := externalControlplaneURL(
+		ctx, cfg,
+		hostname, nodeportName, errName, serverURL, tlsServerName,
+	)
 	if err != nil {
-		return err
+		klog.Warning(err.Error())
 	}
-
-	if externalCluster != nil {
+	if externalClusterURL != "" {
+		externalCluster := defaultCluster.DeepCopy()
+		externalCluster.Server = externalClusterURL
+		externalCluster.TLSServerName = externalClusterTLSServerName
 		exportedKubeconfig.Clusters["external"] = externalCluster
 		externalContext := defaultContext.DeepCopy()
 		externalContext.Cluster = "external"
@@ -143,34 +176,36 @@ func buildCompleteKubeconfig(ctx context.Context, path string) error {
 		exportedKubeconfig.CurrentContext = "external"
 	}
 
-	klog.V(4).Infof("%#v", exportedKubeconfig)
+	return exportedKubeconfig, nil
+}
+
+func buildAndWriteCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, path string, w io.Writer, hostname, nodeportName, errName string, port int, serverURL, tlsServerName string) error {
+	exportedKubeconfig, err := buildCompleteKubeconfig(ctx, cfg, path, hostname, nodeportName, errName, port, serverURL, tlsServerName)
+	if err != nil {
+		return err
+	}
+
+	klog.V(4).Infof("Saving exported kubeconfig to %#v", exportedKubeconfig)
 
 	var serializableKubeconfig clientcmdv1.Config
 	err = clientcmdv1.Convert_api_Config_To_v1_Config(exportedKubeconfig, &serializableKubeconfig, nil)
 	if err != nil {
 		return err
 	}
-
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
 	bytes, err := yaml.Marshal(&serializableKubeconfig)
 	if err != nil {
 		return err
 	}
-	_, err = f.Write(bytes)
+	_, err = w.Write(bytes)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func fetchKubeconfig(ctx context.Context, path string) error {
+func fetchKubeconfig(ctx context.Context, cfg *resolvedConfigT, path string) error {
 	kubeconfigPath := k3sKubeconfigPath
-	if releaseConfig.RKE2Enabled {
+	if cfg.ReleaseConfig.RKE2Enabled {
 		kubeconfigPath = rke2KubeconfigPath
 	}
 	// Absolute windows paths confuse kubectl, so we turn it into a relative path
@@ -186,7 +221,7 @@ func fetchKubeconfig(ctx context.Context, path string) error {
 		path = rel
 	}
 	// TODO: Find a live pod first
-	kubectlCp := kubectl.Cp(&config.Kubectl, &config.Kubernetes, fmt.Sprintf("%s-0", releaseConfig.ControlplaneFullname), kubeconfigPath, path)
+	kubectlCp := kubectl.Cp(&cfg.KinkConfig.Kubectl, &cfg.KinkConfig.Kubernetes, fmt.Sprintf("%s-0", cfg.ReleaseConfig.ControlplaneFullname), kubeconfigPath, path)
 	err := gosh.
 		Command(kubectlCp...).
 		WithContext(ctx).
@@ -198,8 +233,8 @@ func fetchKubeconfig(ctx context.Context, path string) error {
 	return nil
 }
 
-func getNodePort(ctx context.Context, k8sClient *kubernetes.Clientset, namespace, name, portName, errName string) (int32, error) {
-	svc, err := k8sClient.CoreV1().Services(releaseNamespace).Get(ctx, releaseConfig.ControlplaneFullname, metav1.GetOptions{})
+func getNodePort(ctx context.Context, k8sClient *kubernetes.Clientset, cfg *resolvedConfigT, namespace, name, portName, errName string) (int32, error) {
+	svc, err := k8sClient.CoreV1().Services(namespace).Get(ctx, cfg.ReleaseConfig.ControlplaneFullname, metav1.GetOptions{})
 	if err != nil {
 		return 0, err
 	}

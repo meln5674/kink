@@ -5,20 +5,19 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/meln5674/gosh"
+	"github.com/meln5674/rflag"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/meln5674/kink/pkg/containerd"
+	"github.com/meln5674/kink/pkg/helm"
 	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 var (
-	parallelLoads     int
-	onlyLoadToWorkers bool
-	importImageFlags  containerd.CtrFlags
-
 	k3sDefaultImportImageFlags = containerd.CtrFlags{
 		Command: []string{"k3s", "ctr"},
 	}
@@ -36,42 +35,60 @@ var loadCmd = &cobra.Command{
 	Short: "Loads images into nodes from an archive or docker daemon on this host",
 }
 
-func init() {
-	rootCmd.AddCommand(loadCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// loadCmd.PersistentFlags().String("foo", "", "A help for foo")
-	loadCmd.PersistentFlags().IntVar(&parallelLoads, "parallel-loads", 1, "How many image/artifact loads to run in parallel")
-	loadCmd.PersistentFlags().BoolVar(&onlyLoadToWorkers, "only-load-workers", true, "If true, only load images to worker nodes, if false, also load to controlplane nodes")
-	loadCmd.PersistentFlags().StringArrayVar(&importImageFlags.Command, "ctr-command", []string{}, "Command to run within node pods to load images. Default is based on which distribution is used")
-	loadCmd.PersistentFlags().StringVar(&importImageFlags.Namespace, "ctr-namespace", "", "Containerd namespace to to load images to. Default is based on which distribution is used")
-	loadCmd.PersistentFlags().StringVar(&importImageFlags.Address, "ctr-address", "", "Containerd socket address to to load images to. Default is based on which distribution is used")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// loadCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+type loadArgsT struct {
+	ParallelLoads     int      `rflag:"usage=How many image/artifact loads to run in parallel"`
+	OnlyLoadToWorkers bool     `rflag:"name=only-load-workers,usage=If true,, only load images to worker nodes,, if false,, also load to controlplane nodes"`
+	CtrCommand        []string `rflag:"slice-type=slice,usage=Command to run within node pods to load images. Default is based on which distribution is used"`
+	CtrNamespace      string   `rflag:"usage=Containerd namespace to to load images to. Default is based on which distribution is used"`
+	CtrAddress        string   `rflag:"usage=Containerd socket address to to load images to. Default is based on which distribution is used"`
 }
 
-func parseImportImageFlags() {
+func (loadArgsT) Defaults() loadArgsT {
+	return loadArgsT{
+		ParallelLoads:     1,
+		OnlyLoadToWorkers: true,
+		CtrCommand:        []string{},
+	}
+}
+
+func (l *loadArgsT) importImageOverrides() *containerd.CtrFlags {
+	return &containerd.CtrFlags{
+		Command:   l.CtrCommand,
+		Namespace: l.CtrNamespace,
+		Address:   l.CtrAddress,
+	}
+}
+
+func (l *loadArgsT) parseImportImageFlags(cfg *resolvedConfigT) *containerd.CtrFlags {
 	var defaults *containerd.CtrFlags
-	if releaseConfig.RKE2Enabled {
+	if cfg.ReleaseConfig.RKE2Enabled {
 		defaults = &rke2DefaultImportImageFlags
 	} else {
 		defaults = &k3sDefaultImportImageFlags
 	}
-	importImageFlags.Override(defaults)
+	l.importImageOverrides().Override(defaults)
+
+	return defaults
 }
 
-func getPods(ctx context.Context) (*corev1.PodList, error) {
+var loadArgs = loadArgsT{}.Defaults()
+
+func init() {
+	rootCmd.AddCommand(loadCmd)
+	rflag.MustRegister(rflag.ForPFlag(loadCmd.PersistentFlags()), "", &loadArgs)
+}
+
+func getPods(ctx context.Context, args *loadArgsT, cfg *resolvedConfigT) (*corev1.PodList, error) {
 	var pods corev1.PodList
-	labels := config.Release.ExtraLabels()
-	if onlyLoadToWorkers {
-		labels["app.kubernetes.io/component"] = "worker"
+	labels := map[string]string{
+		helm.ClusterLabel: cfg.KinkConfig.Release.ClusterName,
 	}
-	getPods := kubectl.GetPods(&config.Kubectl, &config.Kubernetes, labels)
+	if args.OnlyLoadToWorkers {
+		labels["app.kubernetes.io/component"] = "worker"
+	} else {
+		labels[helm.ClusterNodeLabel] = "true"
+	}
+	getPods := kubectl.GetPods(&cfg.KinkConfig.Kubectl, &cfg.KinkConfig.Kubernetes, labels)
 	err := gosh.
 		Command(getPods...).
 		WithContext(ctx).
@@ -80,14 +97,16 @@ func getPods(ctx context.Context) (*corev1.PodList, error) {
 			gosh.FuncOut(gosh.SaveJSON(&pods)),
 		).
 		Run()
+	if len(pods.Items) == 0 {
+		return nil, fmt.Errorf("No cluster pods matched, this is likely a bug")
+	}
 	return &pods, err
 }
 
-func importParallel(imports ...gosh.Commander) error {
+func importParallel(args *loadArgsT, imports ...gosh.Commander) error {
 	cmd := gosh.FanOut(imports...)
-	if parallelLoads > 0 {
-		cmd = cmd.WithMaxConcurrency(parallelLoads)
+	if args.ParallelLoads > 0 {
+		cmd = cmd.WithMaxConcurrency(args.ParallelLoads)
 	}
 	return cmd.Run()
-
 }

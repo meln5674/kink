@@ -44,6 +44,9 @@ If release name contains chart name it will be used as a full name.
 {{- include "kink.fullname" . }}-kubeconfig
 {{- end }}
 
+{{- define "kink.clusterName" -}}
+{{ .Values.clusterName | default (trimPrefix "kink-" .Release.Name) }}
+{{- end -}}
 
 {{/*
 Create chart name and version as used by the chart label.
@@ -62,6 +65,9 @@ helm.sh/chart: {{ include "kink.chart" . }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- with .Values.extraLabels }}
+{{ . | toYaml }}
+{{- end }}
 {{- end }}
 
 {{- define "kink.controlplane.labels" -}}
@@ -112,11 +118,13 @@ Selector labels
 {{- define "kink.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "kink.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+kink.meln5674.github.com/cluster: {{ include "kink.clusterName" . }}
 {{- end }}
 
 {{- define "kink.controlplane.selectorLabels" -}}
 {{ include "kink.selectorLabels" . }}
 app.kubernetes.io/component: controlplane
+kink.meln5674.github.com/cluster-node: 'true'
 {{- with .Values.controlplane.extraLabels }}
 {{ . | toYaml }}
 {{- end }}
@@ -125,6 +133,7 @@ app.kubernetes.io/component: controlplane
 {{- define "kink.worker.selectorLabels" -}}
 {{ include "kink.selectorLabels" . }}
 app.kubernetes.io/component: worker
+kink.meln5674.github.com/cluster-node: 'true'
 {{- with .Values.worker.extraLabels }}
 {{ . | toYaml }}
 {{- end }}

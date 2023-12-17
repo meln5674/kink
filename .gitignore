@@ -11,3 +11,10 @@ integration-test/local-path-provisioner
 integration-test/shared-local-path-provisioner
 charts/local-path-provisioner
 integration-test/volumes
+integration-test/gocov
+cover.out
+cover.html
+cover.e2e.out
+cover.e2e.html
+coverprofile.out
+coverprofile.html

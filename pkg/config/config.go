@@ -251,6 +251,7 @@ type ReleaseConfig struct {
 	LoadBalancerIngress            LoadBalancerIngress `json:"load-balancer.ingress"`
 	LBManagerFullname              string              `json:"lb-manager.fullname"`
 	FileGatewayHostname            string              `json:"file-gateway.hostname"`
+	FileGatewayContainerPort       Int                 `json:"file-gateway.containerPort"`
 	RKE2Enabled                    Bool                `json:"rke2.enabled"`
 }
 
