@@ -21,20 +21,14 @@ release:
     fileGateway.ingress.enabled: "true"
     fileGateway.ingress.hosts[0]: "k3s-file-gateway.cluster.local"
     fileGateway.ingress.tls[0].hosts[0]: "k3s-file-gateway.cluster.local"
-    extraEnv[0].name: foo
-    extraEnv[0].value: bar
     controlplane.extraEnv[0].name: qux
     controlplane.extraEnv[0].value: quux
     workers.extraEnv[0].name: quuux
     workers.extraEnv[0].value: quuuux
-    extraVolumes[0].name: foo
-    extraVolumes[0].emptyDir.medium: ""
     controlplane.extraVolumes[0].name: bar
     controlplane.extraVolumes[0].emptyDir.medium: ""
     workers.extraVolumes[0].name: baz
     workers.extraVolumes[0].emptyDir.medium: ""
-    extraVolumeMounts[0].name: foo
-    extraVolumeMounts[0].mountPath: /tmp/foo
     controlplane.extraVolumeMounts[0].name: bar
     controlplane.extraVolumeMounts[0].mountPath: /tmp/bar
     workers.extraVolumeMounts[0].name: baz

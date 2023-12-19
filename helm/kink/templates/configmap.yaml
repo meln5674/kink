@@ -80,6 +80,7 @@ load-balancer.ingress: '{{ include "kink.load-balancer.ingressYAML" . | fromYaml
 
 lb-manager.fullname: {{ include "kink.lb-manager.fullname" . }}
 
+file-gateway.enabled: '{{ .Values.fileGateway.enabled }}'
 {{- if .Values.fileGateway.enabled }}
 file-gateway.hostname: |-
   {{ if .Values.controlplane.ingress.enabled }}

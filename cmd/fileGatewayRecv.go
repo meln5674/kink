@@ -36,10 +36,10 @@ var recvCmd = &cobra.Command{
 
 type fileGatewayRecvArgsT struct {
 	Listen      string   `rflag:"usage=Address to listen on"`
-	KeyPath     string   `rflag:"usage=TLS server key file path"`
-	CertPath    string   `rflag:"usage=TLS server cert file path"`
-	CAPath      string   `rflag:"usage=mTLS client CA cert file path"`
-	AllowedDirs []string `rflag:"usage=Allow directory to be extracted to"`
+	KeyPath     string   `rflag:"name=key,usage=TLS server key file path"`
+	CertPath    string   `rflag:"name=cert,usage=TLS server cert file path"`
+	CAPath      string   `rflag:"name=ca,usage=mTLS client CA cert file path"`
+	AllowedDirs []string `rflag:"name=allowed-dir,usage=Allow directory to be extracted to"`
 }
 
 func (fileGatewayRecvArgsT) Defaults() fileGatewayRecvArgsT {

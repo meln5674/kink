@@ -69,8 +69,8 @@ COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/rke2/sy
 COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/k3s/system/kink-shared-local-path-provisioner.yaml
 RUN mkdir -p /etc/kink/extra-manifests/k3s/user /etc/kink/extra-manifests/rke2/user
 
-
-COPY bin/kink /usr/local/bin/kink
+ARG KINK_BINARY=bin/kink
+COPY "${KINK_BINARY}" /usr/local/bin/kink
 
 VOLUME /var/lib/rancher/
 VOLUME /var/lib/kubelet

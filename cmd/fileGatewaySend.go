@@ -17,6 +17,7 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/meln5674/rflag"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	k8srest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -41,6 +42,10 @@ var fileGatewaySendCmd = &cobra.Command{
 	If no file paths are specified, send expects a tar-formatted archive to be piped into standard input`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+
+		if !resolvedConfig.ReleaseConfig.FileGatewayEnabled {
+			return errors.New("The file gateway is not enabled for this cluster")
+		}
 
 		ctx := context.Background()
 
@@ -120,26 +125,38 @@ func sendToFileGateway(ctx context.Context, args *fileGatewaySendArgsT, cfg *res
 	tmpKubeconfig, err := buildCompleteKubeconfig(
 		ctx, cfg,
 		tmpKubeconfigFile.Name(),
-		cfg.ReleaseConfig.FileGatewayHostname, "file-gateway", "file-gateway", int(cfg.ReleaseConfig.FileGatewayContainerPort),
-		args.IngressURL, "",
+		&kubeconfigBuilderArgs{
+			errName:           "file-gateway",
+			externalHostname:  cfg.ReleaseConfig.FileGatewayHostname,
+			nodeportName:      "file-gateway",
+			inClusterPort:     int(cfg.ReleaseConfig.FileGatewayContainerPort),
+			portForwardPort:   args.PortForwardArgs.FileGatewayPort,
+			serverURLOverride: args.IngressURL,
+		},
 	)
 	if err != nil {
 		return err
 	}
 
-	klog.V(4).Infof("Generated file gateway config: %#v", tmpKubeconfig)
+	klog.V(4).InfoS("Generated file gateway config", "config", tmpKubeconfig)
 
 	tmpRestConfig, err := clientcmd.NewDefaultClientConfig(*tmpKubeconfig, nil).ClientConfig()
 	if err != nil {
 		return err
 	}
 
-	if args.PortForward && tmpKubeconfig.CurrentContext == "default" {
-		stopPortForward, err := startPortForward(ctx, true, &args.PortForwardArgs, cfg)
-		if err != nil {
-			return err
+	if tmpKubeconfig.CurrentContext == "default" {
+		if args.PortForward {
+			stopPortForward, err := startPortForward(ctx, true, &args.PortForwardArgs, cfg)
+			if err != nil {
+				return err
+			}
+			defer stopPortForward()
+		} else {
+			klog.V(4).Info("Port-forward explicitly disabled by flag")
 		}
-		defer stopPortForward()
+	} else {
+		klog.V(4).Infof("Current context is %s, port-forwarding not required", tmpKubeconfig.CurrentContext)
 	}
 
 	query := url.Values{}

@@ -222,5 +222,5 @@ func Delete(h *HelmFlags, c *ChartFlags, r *ReleaseFlags, k *kubectl.KubeFlags) 
 }
 
 func List(h *HelmFlags, k *kubectl.KubeFlags) []string {
-	return h.Helm(k, "list", "--output", "json")
+	return h.Helm(k, "list", "--output", "json", "--all")
 }

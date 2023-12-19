@@ -19,6 +19,7 @@ release:
     controlplane.extraArgs[0]: '--disable=traefik'
     controlplane.extraArgs[1]: '--disable=svclb'
 
+    fileGateway.enabled: 'true'
     loadBalancer.enabled: 'true'
     kubeconfig.enabled: 'true'
 

@@ -10,5 +10,10 @@ ctr -n k8s.io container ls | tail -n +2 | while read -r container rest ; do ctr 
 systemctl stop containerd
 mount | grep /run/containerd/io.containerd.grpc.v1.cri/sandboxes/ | while read -r type on path rest; do umount $path ; done
 mount | grep /var/lib/kubelet/pods/ | grep '/volumes/' | while read -r type on path rest; do umount $path ; done
-rm -rf /var/lib/kubelet/* /var/lib/kubelet/containerd/*/* /var/log/* /var/{shared-,}local-path-provisioner/*
+rm -rf \
+    /var/lib/kubelet/* \
+    /var/lib/containerd/*/* \
+    /var/log/* \
+    /var/local-path-provisioner/* \
+    /var/shared-local-path-provisioner/*
 EOF

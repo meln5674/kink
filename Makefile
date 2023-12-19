@@ -13,7 +13,7 @@ bin/kink.dev: $(GO_FILES)
 	go build -o bin/kink.dev main.go
 
 bin/kink.cover: $(GO_FILES)
-	go build -o bin/kink.cover --cover main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build --cover -a -tags netgo -ldflags '-w -extldflags "-static"' -o bin/kink.cover main.go
 
 vet:
 	go vet ./cmd/... ./pkg/... ./e2e/...
@@ -45,6 +45,7 @@ e2e: bin/kink.cover
 	mkdir -p $(GOCOVERDIR)
 	# Excessively long timeout is for github actions which are really slow
 	set -o pipefail ; GOCOVERDIR=$(GOCOVERDIR) ginkgo run -vv --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
+	./hack/fix-coverage-permissions.sh
 	go tool covdata percent -i=$(GOCOVERDIR)
 	go tool covdata textfmt -i=$(GOCOVERDIR) -o cover.e2e.out
 	go tool cover -html=cover.e2e.out -o cover.e2e.html

@@ -19,10 +19,3 @@ WARNING: sharedPersistence.enabledWithoutStorage will not work correctly with mo
 {{ fail "ERROR: The file gateway depends on shared persistence. sharedPersistence.enabled must be true if fileGateway.enabled is true" }}
 {{- end }}
 
-{{- if and .Values.fileGateway.enabled (not .Values.fileGateway.ingress.enabled) (not .Values.controlplane.nodeportHost) }}
-{{ fail "ERROR: The file gateway must have either ingress or a node port host" }}
-{{- end }}
-
-{{- if and .Values.fileGateway.ingress.enabled (not .Values.controlplane.ingress.enabled) }}
-{{ fail "ERROR: Controlplane ingress must be enabled for file gateway ingress to work" }}
-{{- end }}

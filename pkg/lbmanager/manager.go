@@ -623,29 +623,30 @@ func (i *IngressControllerRun) CreateOrUpdateHostIngress(guestClass string) erro
 		return err
 	}
 	i.Log.Info("Generated ingress", "host-ingress", *i.Targets[guestClass])
-	if len(i.Targets[guestClass].Spec.Rules) == 0 {
-		i.Log.Info("Removing host ingress with no rules", "host-ingress", *i.Targets[guestClass])
-		err := i.Host.Delete(i.Ctx, i.Targets[guestClass])
-		if err != nil {
-			if !kerrors.IsNotFound(err) {
-				return err
-			}
-			i.Log.Info("Host ingress was already deleted?")
-		}
-		for {
-			err := i.Host.Get(i.Ctx, client.ObjectKeyFromObject(i.Targets[guestClass]), i.Targets[guestClass])
-			if kerrors.IsNotFound(err) {
-				i.Log.Info("Host ingress was removed")
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			i.Log.Info("Host ingress still exists after deletion", "host-ingress", *i.Targets[guestClass])
-		}
-		return nil
+
+	if len(i.Targets[guestClass].Spec.Rules) != 0 {
+		i.Log.Info("Upserting host ingress", "host-ingress", *i.Targets[guestClass])
+		_, err = controllerutil.CreateOrUpdate(i.Ctx, i.Host, i.Targets[guestClass], i.GenerateHostIngress)
+		return err
 	}
-	i.Log.Info("Upserting host ingress", "host-ingress", *i.Targets[guestClass])
-	_, err = controllerutil.CreateOrUpdate(i.Ctx, i.Host, i.Targets[guestClass], i.GenerateHostIngress)
-	return err
+
+	i.Log.Info("Removing host ingress with no rules", "host-ingress", *i.Targets[guestClass])
+	err = i.Host.Delete(i.Ctx, i.Targets[guestClass])
+	if err != nil {
+		if !kerrors.IsNotFound(err) {
+			return err
+		}
+		i.Log.Info("Host ingress was already deleted?")
+	}
+	for {
+		err = i.Host.Get(i.Ctx, client.ObjectKeyFromObject(i.Targets[guestClass]), i.Targets[guestClass])
+		if kerrors.IsNotFound(err) {
+			i.Log.Info("Host ingress was removed")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		i.Log.Info("Host ingress still exists after deletion", "host-ingress", *i.Targets[guestClass])
+	}
 }

@@ -91,7 +91,7 @@ func makePortForwardCmd(ctx context.Context, args *portForwardArgsT, cfg *resolv
 	ports := map[string]string{
 		fmt.Sprintf("%d", args.ControlplanePort): fmt.Sprintf("%d", cfg.ReleaseConfig.ControlplanePort),
 	}
-	if cfg.ReleaseConfig.FileGatewayHostname != "" {
+	if cfg.ReleaseConfig.FileGatewayEnabled {
 		ports[fmt.Sprintf("%d", args.FileGatewayPort)] = fmt.Sprintf("%d", cfg.ReleaseConfig.FileGatewayContainerPort)
 	}
 	kubectlPortForward := kubectl.PortForward(
@@ -128,7 +128,7 @@ func cmdRetryLoop(ctx context.Context, lock chan struct{}, logMsg string, cmdPtr
 				defer func() { <-lock }()
 				if *cmdPtr != nil {
 					if err != nil {
-						klog.Warningf("% failed, retrying...: %s", logMsg, err)
+						klog.Warningf("%s failed, retrying...: %s", logMsg, err)
 					} else {
 						klog.Warningf("%s stopped without error, retrying...: %s", logMsg, err)
 					}

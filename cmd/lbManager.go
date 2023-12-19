@@ -22,7 +22,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/meln5674/kink/pkg/kubectl"
 	"github.com/meln5674/kink/pkg/lbmanager"
 	"github.com/meln5674/rflag"
 )
@@ -65,7 +64,7 @@ func (lbManagerLeaderElectionArgsT) Defaults() lbManagerLeaderElectionArgsT {
 }
 
 type lbManagerArgsT struct {
-	Kubeconfig            string                       `rflag:"name=guest-kubeconfig,usage=Path to the kubeconfig file to use for accessing the guest cluster"`
+	GuestKubeconfig       string                       `rflag:"usage=Path to the kubeconfig file to use for accessing the guest cluster"`
 	LeaderElectionEnabled bool                         `rflag:"name=leader-election,usage=Enable leader election. Required if more than one replica is running"`
 	LeaderElection        lbManagerLeaderElectionArgsT `rflag:"prefix=leader-election-"`
 	RequeueDelay          time.Duration                `rflag:"usage=Time to wait between retries for reconciliation errors due to e.g. kube api server errors"`
@@ -73,8 +72,8 @@ type lbManagerArgsT struct {
 	MetricsAddr string `rflag:"name=metrics-bind-address,usage=The address the metric endpoint binds to."`
 	ProbeAddr   string `rflag:"name=health-probe-bind-address,usage=The address the probe endpoint binds to."`
 
-	zap             zap.Options
-	guestKubeConfig kubectl.KubeFlags
+	zap                      zap.Options
+	guestKubeconfigOverrides clientcmd.ConfigOverrides
 }
 
 func (lbManagerArgsT) Defaults() lbManagerArgsT {
@@ -130,19 +129,27 @@ func init() {
 		ptr.ShortName = ""
 	}
 
-	clientcmd.BindOverrideFlags(&lbManagerArgs.guestKubeConfig.ConfigOverrides, lbManagerCmd.Flags(), guestFlags)
+	clientcmd.BindOverrideFlags(&lbManagerArgs.guestKubeconfigOverrides, lbManagerCmd.Flags(), guestFlags)
 }
 
 func runLBManager(ctx context.Context, args *lbManagerArgsT, cfg *resolvedConfigT) error {
 
 	setupLog := ctrl.Log.WithName("setup")
 
-	guestConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+	guestConfigLoader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{
-			ExplicitPath: args.guestKubeConfig.Kubeconfig,
+			ExplicitPath: args.GuestKubeconfig,
 		},
-		&args.guestKubeConfig.ConfigOverrides,
-	).ClientConfig()
+		&args.guestKubeconfigOverrides,
+	)
+
+	guestKubeconfig, err := guestConfigLoader.RawConfig()
+	if err != nil {
+		return err
+	}
+	setupLog.Info("Resolved guest kubeconfig", "kubeconfig", guestKubeconfig)
+
+	guestConfig, err := guestConfigLoader.ClientConfig()
 	if err != nil {
 		return err
 	}
@@ -162,6 +169,7 @@ func runLBManager(ctx context.Context, args *lbManagerArgsT, cfg *resolvedConfig
 	if err != nil {
 		return err
 	}
+	hostClient = client.NewNamespacedClient(hostClient, cfg.ReleaseNamespace)
 
 	serviceController := lbmanager.ServiceController{
 		Guest:            mgr.GetClient(),

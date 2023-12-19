@@ -17,10 +17,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	deleteClusterDeletePVCs bool
-)
-
 // deleteClusterCmd represents the delete cluster command
 var deleteClusterCmd = &cobra.Command{
 	Use:          "cluster",
@@ -32,7 +28,7 @@ var deleteClusterCmd = &cobra.Command{
 }
 
 type deleteClusterArgsT struct {
-	DeletePVCs bool `rflag:"usage=Delete the PVCs backing the cluster. By default,, these are not deleted"`
+	DeletePVCs bool `rflag:"name=delete-pvcs,usage=Delete the PVCs backing the cluster. By default,, these are not deleted"`
 }
 
 func (deleteClusterArgsT) Defaults() deleteClusterArgsT {
@@ -43,7 +39,7 @@ var deleteClusterArgs = deleteClusterArgsT{}.Defaults()
 
 func init() {
 	deleteCmd.AddCommand(deleteClusterCmd)
-	rflag.MustRegister(rflag.ForPFlag(deleteCmd.Flags()), "", &deleteClusterArgs)
+	rflag.MustRegister(rflag.ForPFlag(deleteClusterCmd.Flags()), "", &deleteClusterArgs)
 }
 
 func deleteCluster(ctx context.Context, args *deleteClusterArgsT, cfg *resolvedConfigT) error {

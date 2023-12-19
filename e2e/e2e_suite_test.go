@@ -219,10 +219,10 @@ func BuildImage() {
 					Command("../build-env.sh", "make", "-C", "..", "bin/kink.cover").
 					WithParentEnvAnd(map[string]string{"IMAGE_TAG": beforeSuiteState.ImageTag}),
 				gosh.
-					Command(docker.Build(&dockerOpts, beforeSuiteState.BuiltImage, "..", "-f", "../standalone.Dockerfile")...).
+					Command(docker.Build(&dockerOpts, beforeSuiteState.BuiltImage, "..", "-f", "../standalone.Dockerfile", "--build-arg", "KINK_BINARY=bin/kink.cover")...).
 					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}),
 				gosh.
-					Command(docker.Build(&dockerOpts, fmt.Sprintf("%s:it", beforeSuiteState.ImageRepo), "..", "-f", "../standalone.Dockerfile")...).
+					Command(docker.Build(&dockerOpts, fmt.Sprintf("%s:it", beforeSuiteState.ImageRepo), "..", "-f", "../standalone.Dockerfile", "--build-arg", "KINK_BINARY=bin/kink.cover")...).
 					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}),
 			).WithStreams(GinkgoOutErr),
 		)
@@ -293,10 +293,10 @@ func InitKindCluster() {
 	}
 	if !noSuiteCleanup {
 		DeferCleanup(func() {
-			ExpectRun(kindOpts.DeleteCluster())
+			CleanupPVCDirs()
 		})
 		DeferCleanup(func() {
-			CleanupPVCDirs()
+			ExpectRun(kindOpts.DeleteCluster())
 		})
 	}
 
@@ -504,18 +504,37 @@ func (c Case) Run() bool {
 			repoRoot := filepath.Join(pwd, "..")
 			Expect(err).ToNot(HaveOccurred())
 
+			gocoverdir := os.Getenv("GOCOVERDIR")
+			Expect(gocoverdir).ToNot(BeEmpty(), "GOCOVERDIR was not set")
+
+			gocoverdir, err = filepath.Abs(filepath.Join("..", gocoverdir))
+			Expect(err).ToNot(HaveOccurred())
+
+			gocoverdirArgs := []string{
+				"--set", "extraVolumes[0].name=src",
+				"--set", "extraVolumes[0].hostPath.path=/src/kink/",
+				"--set", "extraVolumes[0].hostPath.type=Directory",
+
+				"--set", "extraVolumeMounts[0].name=src",
+				"--set", "extraVolumeMounts[0].mountPath=" + repoRoot,
+
+				"--set", "extraEnv[0].name=GOCOVERDIR",
+				"--set", "extraEnv[0].value=" + gocoverdir,
+			}
+
 			kinkOpts := KinkFlags{
 				//Command:     []string{"go", "run", "../main.go"},
-				Command:     []string{"../bin/kink.cover"},
+				Command:     append([]string{"../bin/kink.cover"}, gocoverdirArgs...),
 				ConfigPath:  filepath.Join("../integration-test", "kink."+c.Name+".config.yaml"),
 				ClusterName: c.Name,
-				Env:         map[string]string{"GOCOVERDIR": filepath.Join("..", os.Getenv("GOCOVERDIR"))},
+				Env:         map[string]string{"GOCOVERDIR": gocoverdir},
 			}
 			rootedKinkOpts := KinkFlags{
 				//Command:     []string{"go", "run", "../main.go"},
-				Command:     []string{"bin/kink.cover"},
+				Command:     append([]string{"bin/kink.cover"}, gocoverdirArgs...),
 				ConfigPath:  filepath.Join("integration-test", "kink."+c.Name+".config.yaml"),
 				ClusterName: c.Name,
+				Env:         map[string]string{"GOCOVERDIR": gocoverdir},
 			}
 			if _, gconfig := GinkgoConfiguration(); gconfig.Verbosity().GTE(gtypes.VerbosityLevelVerbose) {
 				kinkOpts.Command = append(kinkOpts.Command, "-v11")
@@ -894,6 +913,7 @@ func (c Case) Run() bool {
 					"--send-exclude", "integration-test/volumes", // This will cause an infinite loop of copying to itself
 					"--send-exclude", "integration-test/log", // This is being written to while the test is running, meaning it will be bigger than its header, thus fail
 					"--file-gateway-ingress-url", "https://localhost",
+					"--port-forward=false",
 					"-v11",
 				},
 				"Makefile",
@@ -931,7 +951,7 @@ func CleanupPVCDirs() {
 	pwd, err := os.Getwd()
 	Expect(err).ToNot(HaveOccurred())
 	repoRoot := filepath.Join(pwd, "..")
-	cleaner := gosh.Command("./hack/clean-tests.sh").WithStreams(GinkgoOutErr)
+	cleaner := gosh.Command("./hack/clean-tests-afterwards.sh").WithStreams(GinkgoOutErr)
 	cleaner.Cmd.Dir = repoRoot
 	ExpectRun(cleaner)
 }
@@ -1090,6 +1110,8 @@ var _ = Case{
 			},
 		},
 	},
+
+	FileGatewayEnabled: true,
 }.Run()
 
 var _ = Case{
