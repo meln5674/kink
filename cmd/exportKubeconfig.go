@@ -101,6 +101,7 @@ func exportKubeconfig(ctx context.Context, w io.Writer, args *exportKubeconfigCo
 			inClusterPort:     int(cfg.ReleaseConfig.ControlplanePort),
 			portForwardPort:   args.PortForward.ControlplanePort,
 			serverURLOverride: args.ControlplaneIngressURL,
+			nodeportName:      "api",
 		},
 	)
 }
@@ -282,5 +283,5 @@ func getNodePort(ctx context.Context, k8sClient *kubernetes.Clientset, cfg *reso
 		}
 	}
 
-	return 0, fmt.Errorf("%s service %s/%s has no port %s", errName, namespace, name, portName)
+	return 0, fmt.Errorf("%s service %s/%s has no port '%s'", errName, namespace, name, portName)
 }

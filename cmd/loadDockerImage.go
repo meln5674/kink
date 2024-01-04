@@ -4,6 +4,7 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/meln5674/gosh"
@@ -51,13 +52,18 @@ func loadImages(ctx context.Context, args *loadArgsT, cfg *resolvedConfigT, imag
 	if err != nil {
 		return err
 	}
+	var ctrImport bytes.Buffer
+	err = ctrImportScriptTpl.Execute(&ctrImport, containerd.ImportImage(args.parseImportImageFlags(cfg), "-"))
+	if err != nil {
+		return err
+	}
 	imports := make([]gosh.Commander, 0, len(pods.Items))
 	for _, pod := range pods.Items {
 		kubectlExec := kubectl.Exec(
 			&cfg.KinkConfig.Kubectl, &cfg.KinkConfig.Kubernetes,
 			pod.Name,
 			true, false,
-			containerd.ImportImage(args.parseImportImageFlags(cfg), "-")...,
+			"sh", "-c", ctrImport.String(),
 		)
 		dockerSave := docker.Save(&cfg.KinkConfig.Docker, images...)
 		pipeline := gosh.Pipeline(

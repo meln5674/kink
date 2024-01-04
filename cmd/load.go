@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"text/template"
 
 	"github.com/meln5674/gosh"
 	"github.com/meln5674/rflag"
@@ -27,6 +28,17 @@ var (
 		Namespace: "k8s.io",
 		Address:   "/run/k3s/containerd/containerd.sock",
 	}
+
+	// kubectl exec is bugged.
+	// If the command doesn't consume all of its stdin, kubectl hangs.
+	// To fix this, we always cat to /dev/null after the import, and return
+	// the original exit code.
+	ctrImportScriptTpl = template.Must(template.New("ctr import").Parse(`
+{{ range . }}{{ . }} {{ end }}
+exit_code=$?
+cat >/dev/null
+exit "${exit_code}"
+`))
 )
 
 // loadCmd represents the load command
