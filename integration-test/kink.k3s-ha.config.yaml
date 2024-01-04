@@ -33,14 +33,14 @@ release:
     loadBalancer.ingress.classMappings[0].nodePort.httpsPort: https
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
     loadBalancer.ingress.static[0].className: nginx
-    loadBalancer.ingress.static[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
-    loadBalancer.ingress.static[0].hosts[0].host: wordpress.k3s-ha.ingress.outer
+    # loadBalancer.ingress.static[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
+    loadBalancer.ingress.static[0].hosts[0].host: k8s-sfb.k3s-ha.ingress.outer
     loadBalancer.ingress.static[0].hosts[0].tls: 'true'
     loadBalancer.ingress.static[0].hosts[0].paths[0].path: /
     loadBalancer.ingress.static[0].hosts[0].paths[0].pathType: Prefix
     loadBalancer.ingress.static[0].nodePort.namespace: default
-    loadBalancer.ingress.static[0].nodePort.name: wordpress
-    loadBalancer.ingress.static[0].nodePort.port: https
+    loadBalancer.ingress.static[0].nodePort.name: k8s-smoke-test-statefulset
+    loadBalancer.ingress.static[0].nodePort.port: http
   setString:
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"
     loadBalancer.ingress.static[0].host[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"

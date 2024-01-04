@@ -100,8 +100,12 @@ func (c *ChartFlags) Override(c2 *ChartFlags) {
 	util.Override(&c.Version, &c2.Version)
 }
 
+func (c *ChartFlags) IsOCIChart() bool {
+	return strings.HasPrefix(c.ChartName, "oci://")
+}
+
 func (c *ChartFlags) IsLocalChart() bool {
-	return strings.HasPrefix(c.ChartName, "./") || strings.HasPrefix(c.ChartName, "../") || strings.HasPrefix(c.ChartName, "/")
+	return !c.IsOCIChart() && (strings.HasPrefix(c.ChartName, "./") || strings.HasPrefix(c.ChartName, "../") || strings.HasPrefix(c.ChartName, "/"))
 }
 
 func (c *ChartFlags) RepoName() string {
@@ -112,7 +116,7 @@ func (c *ChartFlags) RepoName() string {
 }
 
 func (c *ChartFlags) FullChartName() string {
-	if c.IsLocalChart() {
+	if c.IsOCIChart() || c.IsLocalChart() {
 		return c.ChartName
 	} else {
 		return fmt.Sprintf("%s/%s", c.RepoName(), c.ChartName)
