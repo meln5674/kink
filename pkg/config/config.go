@@ -247,6 +247,7 @@ type ReleaseConfig struct {
 	LoadBalancerFullname           string              `json:"load-balancer.fullname"`
 	LoadBalancerLabels             StringMap           `json:"load-balancer.labels"`
 	LoadBalancerSelectorLabels     StringMap           `json:"load-balancer.selectorLabels"`
+	LoadBalancerServiceType        string              `json:"load-balancer.service.type"`
 	LoadBalancerServiceAnnotations StringMap           `json:"load-balancer.service.annotations"`
 	LoadBalancerIngress            LoadBalancerIngress `json:"load-balancer.ingress"`
 	LBManagerFullname              string              `json:"lb-manager.fullname"`

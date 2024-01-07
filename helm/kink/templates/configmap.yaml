@@ -76,6 +76,7 @@ load-balancer.fullname: {{ include "kink.load-balancer.fullname" . }}
 load-balancer.labels: '{{ include "kink.load-balancer.labels" . | fromYaml | toJson }}'
 load-balancer.selectorLabels: '{{ if eq (int .Values.worker.replicaCount) 0 }}{{ include "kink.controlplane.selectorLabels" . | fromYaml | toJson }}{{ else }}{{ include "kink.worker.selectorLabels" . | fromYaml | toJson }}{{ end }}'
 load-balancer.service.annotations: '{{ .Values.loadBalancer.service.annotations | toJson }}'
+load-balancer.service.type: '{{ .Values.loadBalancer.service.type }}'
 load-balancer.ingress: '{{ include "kink.load-balancer.ingressYAML" . | fromYaml | toJson }}'
 
 lb-manager.fullname: {{ include "kink.lb-manager.fullname" . }}

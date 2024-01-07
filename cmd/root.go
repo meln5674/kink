@@ -134,6 +134,8 @@ var rootCmd = &cobra.Command{
 	// Run: func(cmd *cobra.Command, args []string) { },
 	SilenceUsage: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		gosh.GlobalLog = klog.Background()
+
 		resolved, err := loadConfig(&kinkArgs)
 		if err != nil {
 			return err

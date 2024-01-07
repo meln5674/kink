@@ -57,15 +57,15 @@ This command does not perform variable replacements or glob expansions. To do th
 }
 
 type execArgsT struct {
-	PortForwardArgs        portForwardArgsT `rflag:""`
-	PortForward            bool             `rflag:"usage=Set up a localhost port forward for the controlplane during execution. Set to false if using a background 'kink port-forward' command or running in-cluster"`
-	ExportedKubeconfigPath string           `rflag:"name=exported-kubeconfig,usage=Path to kubeconfig exported during 'create cluster' or 'export kubeconfig' instead of copying it again"`
+	ExportKubeconfig       exportKubeconfigCommonArgsT `rflag:""`
+	PortForward            bool                        `rflag:"usage=Set up a localhost port forward for the controlplane during execution. Set to false if using a background 'kink port-forward' command or running in-cluster"`
+	ExportedKubeconfigPath string                      `rflag:"name=exported-kubeconfig,usage=Path to kubeconfig exported during 'create cluster' or 'export kubeconfig' instead of copying it again"`
 }
 
 func (execArgsT) Defaults() execArgsT {
 	return execArgsT{
-		PortForwardArgs: portForwardArgsT{}.Defaults(),
-		PortForward:     true,
+		ExportKubeconfig: exportKubeconfigCommonArgsT{}.Defaults(),
+		PortForward:      true,
 	}
 }
 
@@ -89,12 +89,39 @@ func execWithGateway(ctx context.Context, toExec *gosh.Cmd, args *execArgsT, cfg
 		if err != nil {
 			return nil, err
 		}
+		kubeconfig.Close()
 		exportedKubeconfigPath = kubeconfig.Name()
+		modifiedKubeconfig, err := buildCompleteKubeconfig(
+			ctx, cfg,
+			exportedKubeconfigPath,
+			&kubeconfigBuilderArgs{
+				errName:           "controlplane",
+				externalHostname:  cfg.ReleaseConfig.ControlplaneHostname,
+				inClusterPort:     int(cfg.ReleaseConfig.ControlplanePort),
+				portForwardPort:   args.ExportKubeconfig.PortForward.ControlplanePort,
+				serverURLOverride: args.ExportKubeconfig.ControlplaneIngressURL,
+				nodeportName:      "api",
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+		if args.PortForward {
+			modifiedKubeconfig.CurrentContext = "default"
+		}
+		kubeconfig, err = os.Create(exportedKubeconfigPath)
+		if err != nil {
+			return nil, err
+		}
+		err = saveKubeconfig(kubeconfig, modifiedKubeconfig)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if args.PortForward {
 		portForwardCtx, cancelPortForward := context.WithCancel(ctx)
-		stopPortForward, err := startPortForward(portForwardCtx, true, &args.PortForwardArgs, cfg)
+		stopPortForward, err := startPortForward(portForwardCtx, true, &args.ExportKubeconfig.PortForward, cfg)
 		if err != nil {
 			cancelPortForward()
 			return nil, err

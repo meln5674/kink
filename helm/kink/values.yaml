@@ -224,6 +224,7 @@ loadBalancer:
   enabled: false
   labels: []
   service:
+    type: ClusterIP
     annotations: {}
 
   # Configuration for the manager deployment

@@ -175,12 +175,12 @@ func buildCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, path str
 		return nil, fmt.Errorf("Extracted kubeconfig did not contain expected context")
 	}
 
-	if args.inClusterPort != 0 {
+	if args.portForwardPort != 0 {
 		defaultClusterURL, err := url.Parse(defaultCluster.Server)
 		if err != nil {
 			return nil, errors.Wrap(err, "Provided kubeconfig had invalid default cluster server URL")
 		}
-		defaultClusterURL.Host = fmt.Sprintf("%s:%d", defaultClusterURL.Hostname(), args.inClusterPort)
+		defaultClusterURL.Host = fmt.Sprintf("%s:%d", defaultClusterURL.Hostname(), args.portForwardPort)
 		defaultCluster.Server = defaultClusterURL.String()
 		exportedKubeconfig.Clusters["default"] = defaultCluster
 	}
@@ -218,16 +218,9 @@ func buildCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, path str
 	return exportedKubeconfig, nil
 }
 
-func buildAndWriteCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, path string, w io.Writer, args *kubeconfigBuilderArgs) error {
-	exportedKubeconfig, err := buildCompleteKubeconfig(ctx, cfg, path, args)
-	if err != nil {
-		return err
-	}
-
-	klog.V(4).Infof("Saving exported kubeconfig to %#v", exportedKubeconfig)
-
+func saveKubeconfig(w io.Writer, kubeconfig *clientcmdapi.Config) error {
 	var serializableKubeconfig clientcmdv1.Config
-	err = clientcmdv1.Convert_api_Config_To_v1_Config(exportedKubeconfig, &serializableKubeconfig, nil)
+	err := clientcmdv1.Convert_api_Config_To_v1_Config(kubeconfig, &serializableKubeconfig, nil)
 	if err != nil {
 		return err
 	}
@@ -240,6 +233,17 @@ func buildAndWriteCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, 
 		return err
 	}
 	return nil
+}
+
+func buildAndWriteCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, path string, w io.Writer, args *kubeconfigBuilderArgs) error {
+	exportedKubeconfig, err := buildCompleteKubeconfig(ctx, cfg, path, args)
+	if err != nil {
+		return err
+	}
+
+	klog.V(4).Infof("Saving exported kubeconfig to %#v", exportedKubeconfig)
+
+	return saveKubeconfig(w, exportedKubeconfig)
 }
 
 func fetchKubeconfig(ctx context.Context, cfg *resolvedConfigT, path string) error {

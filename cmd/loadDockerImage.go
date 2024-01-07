@@ -67,8 +67,8 @@ func loadImages(ctx context.Context, args *loadArgsT, cfg *resolvedConfigT, imag
 		)
 		dockerSave := docker.Save(&cfg.KinkConfig.Docker, images...)
 		pipeline := gosh.Pipeline(
-			gosh.Command(dockerSave...).WithContext(ctx),
-			gosh.Command(kubectlExec...).WithContext(ctx),
+			gosh.Command(dockerSave...).WithContext(ctx).WithStreams(gosh.ForwardErr),
+			gosh.Command(kubectlExec...).WithContext(ctx).WithStreams(gosh.ForwardOutErr),
 		).WithStreams(gosh.ForwardErr)
 		imports = append(imports, pipeline)
 	}

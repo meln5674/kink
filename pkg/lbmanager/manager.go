@@ -46,6 +46,7 @@ type ServiceController struct {
 	Guest            client.Client
 	Log              logr.Logger
 	NodePorts        map[int32]corev1.ServicePort
+	ServiceType      corev1.ServiceType
 	ServiceNodePorts map[string]map[string][]int32
 	LBSvc            *corev1.Service
 	RequeueDelay     time.Duration
@@ -163,7 +164,7 @@ func (s *ServiceControllerRun) GenerateHostLB() error {
 		}
 	}
 
-	s.LBSvc.Spec.Type = corev1.ServiceTypeClusterIP // TODO: Should this be configurable?
+	s.LBSvc.Spec.Type = s.ServiceType
 	s.LBSvc.Spec.Ports = ports
 	s.LBSvc.Spec.Selector = s.ReleaseConfig.LoadBalancerSelectorLabels
 

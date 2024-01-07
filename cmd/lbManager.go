@@ -177,6 +177,7 @@ func runLBManager(ctx context.Context, args *lbManagerArgsT, cfg *resolvedConfig
 		Log:              ctrl.Log.WithName("svc-ctrl"),
 		LBSvc:            &corev1.Service{},
 		NodePorts:        make(map[int32]corev1.ServicePort),
+		ServiceType:      corev1.ServiceType(cfg.ReleaseConfig.LoadBalancerServiceType),
 		ServiceNodePorts: make(map[string]map[string][]int32),
 		RequeueDelay:     args.RequeueDelay,
 		ReleaseNamespace: cfg.ReleaseNamespace,
