@@ -232,3 +232,93 @@ https://{{ include "kink.controlplane.fullname" . }}:{{ .Values.controlplane.ser
 {{- end }}
 {{- end }}
 {{- end -}}
+
+{{- define "kink.registryVolumes" -}}
+{{- $dot := index . 0 }}
+{{- $registryIx := index . 1 }}
+- name: registries
+  configMap:
+    name: {{ include "kink.fullname" $dot }}-registries
+{{- range $k, $v := $dot.Values.registries.configs }}
+{{- range $sub := list "auth" "tls" }}
+{{- if index $v $sub }}
+{{- with (index $v $sub).volume }}
+- name: registries-{{ index $registryIx $k }}-{{ $sub }}
+  {{ . | toYaml | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "kink.registryMountsInit" -}}
+{{- $dot := index . 0 }}
+{{- $registryIx := index . 1 }}
+{{- $etcDir := index . 2 }}
+- name: registries
+  mountPath: {{ $etcDir }}/registries.yaml.tpl
+  subPath: registries.yaml.tpl
+{{- range $k, $v := $dot.Values.registries.configs }}
+{{- range $sub := list "auth" "tls" }}
+{{- if index $v $sub }}
+{{- if (index $v $sub).volume }}
+- name: registries-{{ index $registryIx $k }}-{{ $sub }}
+  mountPath: /etc/kink/registries/{{ $k }}/{{ $sub }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "kink.registryMounts" -}}
+{{- $dot := index . 0 }}
+{{- $registryIx := index . 1 }}
+{{- range $k, $v := $dot.Values.registries.configs }}
+{{- range $sub := list "tls" }}
+{{- if index $v $sub }}
+{{- if (index $v $sub).volume }}
+- name: registries-{{ index $registryIx $k }}-{{ $sub }}
+  mountPath: /etc/kink/registries/{{ $k }}/{{ $sub }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "kink.initArgsControlplane" -}}
+{{- $dot := index . 0 }}
+{{- $dataDir := index . 1 }}
+{{- $extraManifestsDir := index . 2 }}
+- --is-control-plane
+{{- if gt (int $dot.Values.controlplane.replicaCount) 1 }}
+- --etcd-config-path={{ $dataDir }}/server/db/etcd/config
+- --etcd-endpoint=https://{{ include "kink.controlplane.fullname" $dot }}:2379
+- --etcd-reset-member
+- --pod-name=$(POD_NAME)
+- --pod-ip=$(POD_IP)
+{{- end }}
+- --extra-manifests-system-path=/etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/
+- --extra-manifests-user-path=/etc/kink/extra-manifests/{{ $extraManifestsDir }}/user/
+- --extra-manifests-path={{ $dataDir }}/server/manifests/
+- --local-path-provisioner-chart-path=/etc/kink/extra-charts/local-path-provisioner-0.0.25-dev.tgz
+- --local-path-provisioner-manifest-path={{ $dataDir }}/server/manifests/kink-local-storage.yaml
+{{- end }}
+
+{{- define "kink.initArgsAll" -}}
+{{- $dot := index . 0 }}
+{{- $dataDir := index . 1 }}
+{{- $etcDir := index . 2 }}
+{{- $authMounted := index . 3 }}
+{{- $tlsMounted := index . 4 }}
+- --kubelet-cert-path={{ $dataDir }}/agent/kubelet-serving.crt
+- --kubelet-key-path={{ $dataDir }}/agent/kubelet-serving.key
+- --registries-template-path={{ $etcDir }}/registries.yaml.tpl
+- --registries-path={{ $etcDir }}/registries.yaml
+- --registries-credentials-root-path=/etc/kink/registries
+{{- if $authMounted }}
+- --registries-auth-mounted={{ $authMounted | join "," }}
+{{- end }}
+{{- if $tlsMounted }}
+- --registries-tls-mounted={{ $tlsMounted | join "," }}
+{{- end }}
+{{- end -}}

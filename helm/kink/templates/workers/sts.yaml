@@ -1,11 +1,34 @@
 {{- $k8sBin := "k3s" }}
+{{- $etcDir := "/etc/rancher/k3s" }}
 {{- $dataDir := "/var/lib/rancher/k3s" }}
 {{- $tokenVar := "K3S_TOKEN" }}
+{{- $extraManifestsDir := "k3s" }}
 {{- if .Values.rke2.enabled }}
+{{- $etcDir = "/etc/rancher/rke2" }}
 {{- $k8sBin = "rke2" }}
 {{- $dataDir = "/var/lib/rancher/rke2" }}
 {{- $tokenVar = "RKE2_TOKEN" }}
+{{- $extraManifestsDir = "rke2" }}
 {{- end }}
+{{- $registryIx := dict }}
+{{- $tlsMounted := list }}
+{{- $authMounted := list }}
+{{- $ix := 0 }}
+{{- range $k, $v := .Values.registries.configs }}
+{{- $registryIx = set $registryIx $k $ix }}
+{{- $ix = add $ix 1 }}
+{{- if $v.auth }}
+{{- if $v.auth.volume }}
+{{- $authMounted = append $authMounted $k }}
+{{- end }}
+{{- end }}
+{{- if $v.tls }}
+{{- if $v.tls.volume }}
+{{- $tlsMounted = append $tlsMounted $k }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -58,14 +81,9 @@ spec:
           {{- with .Values.worker.extraEnv }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
-          command:
-          - sh
-          - -cxe
+          command: [kink, init]
           args:
-          - |-
-            # Without this, recreating a worker pod results in an invalid kubelet cert,
-            # which breaks things like kubectl logs
-            rm -f '{{ $dataDir }}/agent/kubelet-serving'.{crt,key}
+          {{- include "kink.initArgsAll" (list . $dataDir $etcDir $authMounted $tlsMounted) | nindent 10 }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           volumeMounts:
@@ -75,6 +93,7 @@ spec:
           - name: data
             mountPath: /etc/rancher
             subPath: etc/rancher
+          {{- include "kink.registryMountsInit" (list . $registryIx $etcDir) | nindent 10 }}
           - name: kubelet
             mountPath: /var/lib/kubelet
             subPath: var/lib/kubelet
@@ -183,6 +202,7 @@ spec:
           - name: data
             mountPath: /etc/rancher
             subPath: etc/rancher
+          {{- include "kink.registryMounts" (list . $registryIx) | nindent 10 }}
           - name: kubelet
             mountPath: /var/lib/kubelet
             subPath: var/lib/kubelet
@@ -217,6 +237,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       volumes:
+      {{- include "kink.registryVolumes" (list . $registryIx) | nindent 6 }}
       {{- if not .Values.kubelet.persistence.enabled }}
       - name: kubelet
         emptyDir: {}

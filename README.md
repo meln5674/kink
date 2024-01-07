@@ -162,7 +162,7 @@ If you wish to access the guest controlplane from within a pod in the host clust
 
 ### NodePorts and LoadBalancers
 
-If you wish to wish to access NodePort and LoadBalancer type services within the host cluster, you can do so by directly accessing individual pods, or, if a load-balancer for your LoadBalancers is desirable, `--set loadBalancer.enabled=true` to enable an additional component which will dynamically manage a service that will contain all detected NodePorts (including LoadBalancers).
+If you wish to wish to access NodePort and LoadBalancer type services within the host cluster, you can do so by directly accessing individual pods, or, if a load-balancer for your LoadBalancers is desirable, `--set loadBalancer.enabled=true` to enable an additional component which will dynamically manage a service that will contain all detected NodePorts (including LoadBalancers). Presently, the status.ingress field will report ingresses that are usable within the cluster.
 
 ### Nested Ingress Controllers
 
@@ -175,6 +175,10 @@ If you wish to use host cluster Ingresses for traffic other than a guest cluster
 ### Air-gapped Clusters
 
 For initial setup, see [here for k3s](https://docs.k3s.io/installation/airgap#prepare-the-images-directory-and-k3s-binary) and [here for rke2](https://docs.rke2.io/install/airgap/#tarball-method). You can then make these files and directories available to your cluster pods in a ReadWriteMany PVC using `--set extraVolumes` and `--set extraVolumeMounts`. Once you cluster is started, you can load additional images using `kink load docker-image <image name on local daemon>`, `kink load docker-archive <path to tarball>` and `kink load oci-archive <path to tarball>`. For accessing the chart, use the `--chart` flag to `kink create cluster` to specify a path to a local checkout of the chart or chart tarball, or use the `--repository-url` flag to specify an accessible chart repository in which you've mirrored the chart.
+
+### Private Registries
+
+The `registries` field within the `values.yaml` will be saved as the `registries.yaml` file for k3s/rke2. To load credentials and TLS files from a secret or configmap, set the `auth.volume` and/or `tls.volume` fields (which will be stripped from the final file) to the appropriate volume to add to the pod spec, and instead set the username, password, ca_file, etc, fields to the subPath within those volumes.
 
 ### HTTP Proxies
 

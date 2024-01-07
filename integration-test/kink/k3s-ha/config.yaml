@@ -42,6 +42,10 @@ release:
     loadBalancer.ingress.static[0].nodePort.namespace: default
     loadBalancer.ingress.static[0].nodePort.name: k8s-smoke-test-statefulset
     loadBalancer.ingress.static[0].nodePort.port: http
+
+    'registries.mirrors.docker\.io.endpoint[0]': http://proxy-registry.default:5000
+    'registries.mirrors.registry-1\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
+    'registries.mirrors.index\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
   setString:
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"
     loadBalancer.ingress.static[0].host[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"

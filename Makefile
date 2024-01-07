@@ -40,13 +40,14 @@ test: $(SETUP_ENVTEST) $(GINKGO)
 
 GOCOVERDIR=$(shell pwd)/integration-test/gocov
 
+E2E_FLAGS ?= -vv -p --trace --timeout=2h
 .PHONY: e2e
 e2e: bin/kink.cover $(GINKGO) $(KIND) $(KUBECTL) $(HELM) $(SETUP_ENVTEST)
 	./hack/inotify-check.sh
 	rm -rf $(GOCOVERDIR)
 	mkdir -p $(GOCOVERDIR)
 	# Excessively long timeout is for github actions which are really slow
-	set -o pipefail ; KINK_IT_REPO_ROOT=$(shell pwd) LOCALBIN=$(LOCALBIN) GOCOVERDIR=$(GOCOVERDIR) $(GINKGO) run -vv --trace -p --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
+	set -o pipefail ; KINK_IT_REPO_ROOT=$(shell pwd) LOCALBIN=$(LOCALBIN) GOCOVERDIR=$(GOCOVERDIR) $(GINKGO) run $(E2E_FLAGS) ./e2e/ 2>&1 | tee integration-test/log
 	./hack/fix-coverage-permissions.sh
 	go tool covdata percent -i=$(GOCOVERDIR)
 	go tool covdata textfmt -i=$(GOCOVERDIR) -o cover.e2e.out

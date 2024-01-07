@@ -77,12 +77,38 @@ var (
 	}
 	kindClusterID gingk8s.ClusterID
 
+	twuniRepo = gingk8s.HelmRepo{
+		Name: "twuni",
+		URL:  "https://helm.twun.io",
+	}
+	dockerRegistryChart = gingk8s.HelmChart{
+		RemoteChartInfo: gingk8s.RemoteChartInfo{
+			Repo:    &twuniRepo,
+			Name:    "docker-registry",
+			Version: "v2.2.2",
+		},
+	}
+	dockerRegistryImage = gingk8s.ThirdPartyImage{
+		Name: "docker.io/library/registry:2.7.1",
+	}
+	proxyRegistry = gingk8s.HelmRelease{
+		Name:  "proxy-registry",
+		Chart: &dockerRegistryChart,
+		Set: gingk8s.Object{
+			"persistence.enabled":        true,
+			"service.type":               "NodePort",
+			"configData.proxy.remoteurl": "https://registry-1.docker.io",
+			"fullnameOverride":           "proxy-registry",
+		},
+	}
+
+	ingressNginxRepo = gingk8s.HelmRepo{
+		Name: "ingress-nginx",
+		URL:  "https://kubernetes.github.io/ingress-nginx",
+	}
 	ingressNginxChart = gingk8s.HelmChart{
 		RemoteChartInfo: gingk8s.RemoteChartInfo{
-			Repo: &gingk8s.HelmRepo{
-				Name: "ingress-nginx",
-				URL:  "https://kubernetes.github.io/ingress-nginx",
-			},
+			Repo:    &ingressNginxRepo,
 			Name:    "ingress-nginx",
 			Version: "4.6.0",
 		},
@@ -221,13 +247,15 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 	//gk8s.CustomImage(&localPathProvisionerImage)
 	gk8s.ThirdPartyImage(&k8sSmokeTestDeploymentImage)
 	gk8s.ThirdPartyImage(&k8sSmokeTestStatefulSetImage)
+	dockerRegistryImageID := gk8s.ThirdPartyImage(&dockerRegistryImage)
 	gk8s.ImageArchive(&k8sSmokeTestJobImageArchive)
-	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID)
+	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID, dockerRegistryImageID)
 	gk8s.Release(kindClusterID, &sharedLocalPathProvisioner)
 	ingressNginxID := gk8s.Release(kindClusterID, &ingressNginx, ingressNginxImageID)
 	gk8s.ClusterAction(kindClusterID, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
 		return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller").Run()
 	}), ingressNginxID)
+	gk8s.Release(kindClusterID, &proxyRegistry, dockerRegistryImageID)
 
 	gk8s.ClusterAction(kindClusterID, "Watch Pods", &watchPods)
 	gk8s.ClusterAction(kindClusterID, "Watch Endpoints", &watchEndpoints)

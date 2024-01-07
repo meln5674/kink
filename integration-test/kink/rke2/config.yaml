@@ -29,6 +29,10 @@ release:
     loadBalancer.ingress.classMappings[0].guestClassName: nginx
     loadBalancer.ingress.classMappings[0].className: nginx
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
+
+    'registries.mirrors.docker\.io.endpoint[0]': http://proxy-registry.default:5000
+    'registries.mirrors.registry-1\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
+    'registries.mirrors.index\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
   setString:
     loadBalancer.ingress.classMappings[0].hostPort.httpsPort: '443'
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"

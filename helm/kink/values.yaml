@@ -429,3 +429,28 @@ rke2:
 
 iptables:
   useLegacy: false
+
+# This object will be used to create a registries.yaml file as described in
+# https://docs.k3s.io/installation/private-registry
+# and
+# https://docs.rke2.io/install/containerd_registry_configuration
+# The schema is identical, with the addition of the "volume" field for auth and tls.
+# If this field is present, it must be a valid pod spec volume, and the subfields are
+# instead treated as the names of subPath's within that volume
+# e.g.
+# configs:
+#   my-registry:5000
+#     auth:
+#       volume:
+#         secret:
+#           secretName: my-registry-config
+#       username: username
+#       password: password
+#     tls:
+#       volume:
+#         configMap:
+#           name: my-registry-ca
+#       ca_file: ca.pem
+registries:
+  mirrors: {}
+  configs: {}
