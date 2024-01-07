@@ -7,9 +7,9 @@ rm -rf charts/local-path-provisioner
 #    charts/local-path-provisioner
 
 git clone \
+    --branch feature/multiple-storage-classes \
     https://github.com/meln5674/local-path-provisioner.git \
     charts/local-path-provisioner
-git -C charts/local-path-provisioner checkout bugfix/helm-shared-filesystem-path
 
 helm package \
     charts/local-path-provisioner/deploy/chart/local-path-provisioner \

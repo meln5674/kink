@@ -87,19 +87,11 @@ spec:
               {{- end }}
               echo 'Copying extra manifests'
               mkdir -p '{{ $dataDir }}/server/manifests/'
-              {{- if .Values.rke2.enabled }}
-              cp /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/kink-local-path-provisioner.yaml '{{ $dataDir }}/server/manifests/'
-              {{- if or .Values.sharedPersistence.enabled .Values.sharedPersistence.enabledWithoutStorage }}
-              cp /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/kink-shared-local-path-provisioner.yaml '{{ $dataDir }}/server/manifests/'
-              {{- end }}
-              {{- else }}
-              {{- if or .Values.sharedPersistence.enabled .Values.sharedPersistence.enabledWithoutStorage }}
-              cp /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/kink-shared-local-path-provisioner.yaml '{{ $dataDir }}/server/manifests/'
-              {{- end }}
-              {{- end }}
-              # TODO: This will always succeed, even if a copy fails, fix this
-
-              find '/etc/kink/extra-manifests/{{ $extraManifestsDir }}/user/' -name '*.yaml' -exec cp {} '{{ $dataDir }}/server/manifests/' \;
+              cp -vr '/etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/.' '{{ $dataDir }}/server/manifests/'
+              cp -vr '/etc/kink/extra-manifests/{{ $extraManifestsDir }}/user/.' '{{ $dataDir }}/server/manifests/'
+              echo >> '{{ $dataDir }}/server/manifests/kink-local-storage.yaml'
+              echo -n '  chartContent: ' >> '{{ $dataDir }}/server/manifests/kink-local-storage.yaml'
+              base64 -w0 < /etc/kink/extra-charts/local-path-provisioner-0.0.25-dev.tgz >> '{{ $dataDir }}/server/manifests/kink-local-storage.yaml'
           resources:
             {{- toYaml .Values.controlplane.resources | nindent 12 }}
           volumeMounts:
@@ -117,6 +109,12 @@ spec:
             mountPath: /{{ . }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
+          - name: system-charts
+            mountPath: /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/kink-local-storage.yaml
+            subPath: kink-local-storage.yaml
+          - name: system-charts
+            mountPath: /etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/local-storage.yaml.skip
+            subPath: local-storage.yaml.skip
           {{- with .Values.extraVolumeMounts }}
           {{- . | toYaml | nindent 10 }}
           {{- end }}
@@ -158,6 +156,7 @@ spec:
             update-alternatives --set iptables /usr/sbin/iptables-legacy
             update-alternatives --set ip6tables /usr/sbin/ip6tables-legacy
             {{- end }}
+            ls '{{ $dataDir }}/server/manifests/'
             {{- if gt (int .Values.controlplane.replicaCount) 1 }}
             if [ "${POD_NAME}" = '{{ include "kink.controlplane.fullname" . }}-0' ]; then
               exec '{{ $k8sBin }}' server \
@@ -373,6 +372,9 @@ spec:
       - name: data
         emptyDir: {}
       {{- end }}
+      - name: system-charts
+        configMap:
+          name: {{ include "kink.controlplane.fullname" . }}-system-charts
       - name: shared-data
       {{- if .Values.sharedPersistence.enabled }}
         persistentVolumeClaim:

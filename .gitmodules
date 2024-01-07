@@ -1,0 +1,4 @@
+[submodule "hack/charts/local-path-provisioner"]
+	path = hack/charts/local-path-provisioner
+	url = https://github.com/meln5674/local-path-provisioner.git
+	branch = feature/multiple-storage-classes

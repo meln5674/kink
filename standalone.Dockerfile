@@ -2,6 +2,8 @@ ARG BASE_IMAGE=docker.io/library/debian:bullseye-slim
 
 ARG DOCKER_IMAGE=docker.io/library/docker:20
 
+ARG GO_IMAGE=docker.io/library/golang:1.19
+
 FROM ${DOCKER_IMAGE} AS docker
 
 FROM ${BASE_IMAGE} AS download
@@ -31,6 +33,16 @@ ARG HELM_VERSION=v3.10.1
 
 RUN curl -fvL https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz \
   | tar xz -C /usr/local/bin/ --strip-components=1 linux-amd64/helm
+
+FROM ${GO_IMAGE} AS go
+FROM go as local-path-provisioner
+
+WORKDIR /src/local-path-provisioner
+
+RUN git clone https://github.com/meln5674/local-path-provisioner.git . \
+ && git checkout c9493a0eb2edb8f5cc055c55618c9a2a05fc0f51 \
+ && CGO_ENABLED=0 go build -a -tags netgo -ldflags '-w -extldflags "-static"' .
+
 
 FROM download AS kink
 
@@ -64,13 +76,12 @@ COPY --from=helm /usr/local/bin/helm /usr/local/bin/helm
 COPY --from=yq /usr/local/bin/yq /usr/local/bin/yq
 COPY --from=etcd /usr/local/bin/etcdctl /usr/local/bin/etcdctl
 
-COPY charts/local-path-provisioner.yaml /etc/kink/extra-manifests/rke2/system/kink-local-path-provisioner.yaml
-COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/rke2/system/kink-shared-local-path-provisioner.yaml
-COPY charts/shared-local-path-provisioner.yaml /etc/kink/extra-manifests/k3s/system/kink-shared-local-path-provisioner.yaml
+COPY charts/local-path-provisioner-*.tgz /etc/kink/extra-charts/
 RUN mkdir -p /etc/kink/extra-manifests/k3s/user /etc/kink/extra-manifests/rke2/user
 
 ARG KINK_BINARY=bin/kink
 COPY "${KINK_BINARY}" /usr/local/bin/kink
+COPY --from=local-path-provisioner /src/local-path-provisioner/local-path-provisioner /usr/local/bin/local-path-provisioner
 
 VOLUME /var/lib/rancher/
 VOLUME /var/lib/kubelet

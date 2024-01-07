@@ -1,0 +1,34 @@
+tools:
+  ginkgo:
+    go:
+      module: github.com/onsi/ginkgo/v2
+      version: v2.13.1
+      subpath: ginkgo
+  kind:
+    go:
+      module: sigs.k8s.io/kind
+      version: v0.17.0
+  kubectl:
+    http:
+      url: "{{ .Vars.mirror }}/{{ .Vars.version }}/bin/$(shell go env GOOS)/$(shell go env GOARCH)/kubectl"
+    vars:
+      mirror: https://dl.k8s.io/release
+      version: v1.25.11
+  helm:
+    go:
+      module: helm.sh/helm/v3
+      subpath: cmd/helm
+      version:  v3.11.2
+  setup-envtest: 
+    go:
+      module: sigs.k8s.io/controller-runtime/tools/setup-envtest
+      version: latest
+
+toolSets:
+  k8s-tools:
+  - kind
+  - kubectl
+  - helm
+  test-tools:
+  - ginkgo
+  - setup-envtest
