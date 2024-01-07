@@ -39,6 +39,7 @@ release:
     controlplane.extraArgs[2]: '--disable=servicelb'
     workers.extraArgs[0]: '--node-label=foo=bar'
     loadBalancer.enabled: 'true'
+    loadBalancer.service.type: 'NodePort'
     kubeconfig.enabled: 'true'
 
     controlplane.ingress.enabled:  "true"
@@ -53,7 +54,7 @@ release:
     loadBalancer.ingress.classMappings[0].nodePort.name: ingress-nginx-controller
     loadBalancer.ingress.classMappings[0].nodePort.httpPort: http
     loadBalancer.ingress.static[0].className: nginx
-    loadBalancer.ingress.static[0].hosts[0].host: k8s-sfb.k3s.ingress.outer
+    loadBalancer.ingress.static[0].hosts[0].host: smoke-test.k3s.ingress.outer
     loadBalancer.ingress.static[0].hosts[0].paths[0].path: /
     loadBalancer.ingress.static[0].hosts[0].paths[0].pathType: Prefix
     loadBalancer.ingress.static[0].nodePort.namespace: default

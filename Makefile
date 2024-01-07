@@ -38,7 +38,7 @@ test: $(SETUP_ENVTEST) $(GINKGO)
 	KUBEBUILDER_ASSETS="$(shell $(SETUP_ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GINKGO) run -v -r --coverprofile=cover.out --coverpkg=./pkg/... ./pkg
 	go tool cover -html=cover.out -o cover.html
 
-GOCOVERDIR=integration-test/gocov
+GOCOVERDIR=$(shell pwd)/integration-test/gocov
 
 .PHONY: e2e
 e2e: bin/kink.cover $(GINKGO) $(KIND) $(KUBECTL) $(HELM) $(SETUP_ENVTEST)
@@ -46,7 +46,7 @@ e2e: bin/kink.cover $(GINKGO) $(KIND) $(KUBECTL) $(HELM) $(SETUP_ENVTEST)
 	rm -rf $(GOCOVERDIR)
 	mkdir -p $(GOCOVERDIR)
 	# Excessively long timeout is for github actions which are really slow
-	set -o pipefail ; GOCOVERDIR=$(GOCOVERDIR) $(GINKGO) run -vv --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
+	set -o pipefail ; KINK_IT_REPO_ROOT=$(shell pwd) LOCALBIN=$(LOCALBIN) GOCOVERDIR=$(GOCOVERDIR) $(GINKGO) run -vv --trace -p --timeout=2h ./e2e/ 2>&1 | tee integration-test/log
 	./hack/fix-coverage-permissions.sh
 	go tool covdata percent -i=$(GOCOVERDIR)
 	go tool covdata textfmt -i=$(GOCOVERDIR) -o cover.e2e.out

@@ -4,11 +4,9 @@ kubeconfig
 *.kubeconfig
 bin/
 *.tar
-integration-test/last-image
 integration-test/log
-integration-test/kind.config.yaml
-integration-test/local-path-provisioner
-integration-test/shared-local-path-provisioner
+integration-test/**/images/
+integration-test/kind/config.yaml
 charts/local-path-provisioner
 integration-test/volumes
 integration-test/gocov

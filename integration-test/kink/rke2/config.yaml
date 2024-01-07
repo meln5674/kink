@@ -22,6 +22,7 @@ release:
     controlplane.extraArgs[1]: '--disable=rke2-metrics-server'
 
     loadBalancer.enabled: 'true'
+    loadBalancer.service.type: 'NodePort'
     kubeconfig.enabled: 'true'
 
     loadBalancer.ingress.enabled: 'true'

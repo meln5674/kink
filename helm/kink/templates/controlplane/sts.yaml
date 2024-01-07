@@ -350,6 +350,12 @@ spec:
             mountPath: /{{ . }}
             subPath: {{ . | trimPrefix "/" }}
           {{- end }}
+          {{- with .Values.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
+          {{- with .Values.controlplane.extraVolumeMounts }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
         {{- end }}
       {{- with .Values.controlplane.nodeSelector }}
       nodeSelector:
@@ -415,6 +421,13 @@ spec:
       resources:
         requests:
           storage: {{ .Values.kubelet.persistence.size }}
+  {{- end }}
+
+  {{- with .Values.extraVolumeTemplates }}
+  {{- . | toYaml | nindent 2 }}
+  {{- end }}
+  {{- with .Values.controlplane.extraVolumeTemplates }}
+  {{- . | toYaml | nindent 2 }}
   {{- end }}
   {{- with .Values.controlplane.extraControllerSpec }}
   {{- . | toYaml | nindent 2 }}

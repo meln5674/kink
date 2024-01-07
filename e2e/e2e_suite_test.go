@@ -3,32 +3,31 @@ package e2e_test
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	gtypes "github.com/onsi/ginkgo/v2/types"
 	. "github.com/onsi/gomega"
+
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/transport"
 	"k8s.io/klog/v2"
 
-	"github.com/google/go-containerregistry/pkg/crane"
 	"github.com/meln5674/gosh"
 
-	"github.com/meln5674/kink/pkg/docker"
 	"github.com/meln5674/kink/pkg/flags"
 	"github.com/meln5674/kink/pkg/helm"
 	"github.com/meln5674/kink/pkg/kubectl"
+
+	"github.com/meln5674/gingk8s"
 
 	"github.com/meln5674/k8s-smoke-test/pkg/test"
 	k8ssmoketest "github.com/meln5674/k8s-smoke-test/pkg/test"
@@ -40,63 +39,161 @@ func TestE2e(t *testing.T) {
 }
 
 var (
-	// These 4 are used when debugging interactively. They should be set to false in the actual repo
-	noSuiteCleanup = false
-	noCleanup      = false
-	noCreate       = false
-	noPull         = false
-	noLoad         = false
-	noDeps         = false
-	noRebuild      = false
+	GinkgoOutErr = gingk8s.GinkgoOutErr
 
-	kindConfigPath           = "../integration-test/kind.config.yaml"
-	kindKubeconfigPath       = "../integration-test/kind.kubeconfig"
-	rootedKindKubeconfigPath = "integration-test/kind.kubeconfig"
+	repoRoot = os.Getenv("KINK_IT_REPO_ROOT")
 
-	kindOpts = KindOpts{
-		KindCommand:       []string{"../bin/kind"},
-		KubeconfigOutPath: kindKubeconfigPath,
-		ClusterName:       "kink-it",
+	localbin     = os.Getenv("LOCALBIN")
+	localKubectl = gingk8s.KubectlCommand{
+		Command: []string{filepath.Join(localbin, "kubectl")},
 	}
-	dockerOpts = docker.DockerFlags{
-		Command: []string{"docker"},
+	localHelm = gingk8s.HelmCommand{
+		Command: []string{filepath.Join(localbin, "helm")},
 	}
-	kubectlOpts = kubectl.KubectlFlags{
-		Command: []string{"../bin/kubectl"},
+	localKind = gingk8s.KindCommand{
+		Command: []string{filepath.Join(localbin, "kind")},
 	}
-	kindKubeOpts = kubectl.KubeFlags{
-		Kubeconfig: kindOpts.KubeconfigOutPath,
-	}
-	rootedKindKubeOpts = kubectl.KubeFlags{
-		Kubeconfig: rootedKindKubeconfigPath,
-	}
-	helmOpts = helm.HelmFlags{
-		Command: []string{"../bin/helm"},
+	localDocker = gingk8s.DockerCommand{}
+
+	gk8s     gingk8s.Gingk8s
+	gk8sOpts = gingk8s.SuiteOpts{
+		// KLogFlags:      []string{"-v=6"},
+		Kubectl:        &localKubectl,
+		Helm:           &localHelm,
+		Manifests:      &localKubectl,
+		NoSuiteCleanup: os.Getenv("KINK_IT_DEV_MODE") != "",
+		NoSpecCleanup:  os.Getenv("KINK_IT_DEV_MODE") != "",
+		NoCacheImages:  os.Getenv("IS_CI") != "",
+		NoPull:         os.Getenv("IS_CI") != "",
+		NoLoadPulled:   os.Getenv("IS_CI") != "",
 	}
 
+	kindCluster = gingk8s.KindCluster{
+		Name:                   "kink-it",
+		KindCommand:            &localKind,
+		TempDir:                filepath.Join(repoRoot, "integration-test/kind"),
+		ConfigFileTemplatePath: filepath.Join(repoRoot, "integration-test/kind/config.yaml.tpl"),
+		ConfigFilePath:         filepath.Join(repoRoot, "integration-test/kind/config.yaml"),
+	}
+	kindClusterID gingk8s.ClusterID
+
+	ingressNginxChart = gingk8s.HelmChart{
+		RemoteChartInfo: gingk8s.RemoteChartInfo{
+			Repo: &gingk8s.HelmRepo{
+				Name: "ingress-nginx",
+				URL:  "https://kubernetes.github.io/ingress-nginx",
+			},
+			Name:    "ingress-nginx",
+			Version: "4.6.0",
+		},
+	}
+	ingressNginxImage = gingk8s.ThirdPartyImage{
+		Name: "registry.k8s.io/ingress-nginx/controller:v1.7.0",
+	}
+	ingressNginx = gingk8s.HelmRelease{
+		Name:  "ingress-nginx",
+		Chart: &ingressNginxChart,
+		Set: gingk8s.Object{
+			"controller.kind":                             "DaemonSet",
+			"controller.service.type":                     "ClusterIP",
+			"controller.hostPort.enabled":                 "true",
+			"controller.extraArgs.enable-ssl-passthrough": "true",
+		},
+	}
+	ingressNginxInner = gingk8s.HelmRelease{
+		Name:       "ingress-nginx",
+		Chart:      &ingressNginxChart,
+		SkipDelete: true,
+	}
+	ingressNginxInnerDS = gingk8s.HelmRelease{
+		Name:  "ingress-nginx",
+		Chart: &ingressNginxChart,
+		Set: gingk8s.Object{
+			"controller.kind":             "DaemonSet",
+			"controller.hostPort.enabled": "true",
+		},
+		// I don't know why, but deleting this chart fails consistently on the cases that use port-forwarding for the controlplane.
+		// Need to investigate if it is related to the nodes using hostports, or if that's just a coincidence.
+		// In any case, not deleting it lets the tests pass
+		SkipDelete: true,
+	}
+
+	/*
+		localPathProvisionerImage = gingk8s.CustomImage{
+			Registry:   "local.host",
+			Repository: "meln5674/local-path-provisioner",
+			Dockerfile: filepath.Join(repoRoot, "charts/local-path-provisioner/package/Dockerfile"),
+			ContextDir: filepath.Join(repoRoot, "charts/local-path-provisioner"),
+		}
+	*/
 	sharedLocalPathProvisionerMount = "/opt/shared-local-path-provisioner"
-
-	ingressNginxChartRepo    = "https://kubernetes.github.io/ingress-nginx"
-	ingressNginxChartName    = "ingress-nginx"
-	ingressNginxChartVersion = "4.4.2"
-
-	k8sSmokeTestVersion = "v0.2.0"
-	k8sSmokeTestChart   = helm.ChartFlags{
-		ChartName: "oci://ghcr.io/meln5674/k8s-smoke-test/charts/k8s-smoke-test",
-		Version:   k8sSmokeTestVersion,
+	sharedLocalPathProvisioner      = gingk8s.HelmRelease{
+		Chart: &gingk8s.HelmChart{
+			LocalChartInfo: gingk8s.LocalChartInfo{
+				Path: filepath.Join(repoRoot, "charts/local-path-provisioner-0.0.24-dev.tgz"),
+			},
+		},
+		Name:      "local-path-provisioner",
+		Namespace: "kube-system",
+		Set: gingk8s.Object{
+			"storageClass.name":    "shared-local-path",
+			"nodePathMap":          "null",
+			"sharedFileSystemPath": sharedLocalPathProvisionerMount,
+			"fullnameOverride":     "shared-local-path-provisioner",
+			"configmap.name":       "shared-local-path-provisioner",
+		},
 	}
-	k8sSmokeTestDeploymentImageRepo  = "ghcr.io/meln5674/k8s-smoke-test/deployment"
-	k8sSmokeTestDeploymentImage      = k8sSmokeTestDeploymentImageRepo + ":" + k8sSmokeTestVersion
-	k8sSmokeTestStatefulSetImageRepo = "ghcr.io/meln5674/k8s-smoke-test/statefulset"
-	k8sSmokeTestStatefulSetImage     = k8sSmokeTestStatefulSetImageRepo + ":" + k8sSmokeTestVersion
-	k8sSmokeTestJobImageRepo         = "ghcr.io/meln5674/k8s-smoke-test/job"
-	k8sSmokeTestJobImage             = k8sSmokeTestJobImageRepo + ":" + k8sSmokeTestVersion
+	kinkImage = gingk8s.CustomImage{
+		Registry:   "local.host",
+		Repository: "meln5674/kink",
+		Dockerfile: filepath.Join(repoRoot, "standalone.Dockerfile"),
+		ContextDir: repoRoot,
+		BuildArgs: map[string]string{
+			"KINK_BINARY": "bin/kink.cover",
+		},
+	}
 
-	k8sSmokeTestDeploymentTarballPath = "../integration-test/k8smoke-test-deployment.tar"
-	k8sSmokeTestJobTarballPath        = "../integration-test/k8smoke-test-job.tar"
+	k8sSmokeTestVersion    = "v0.2.0"
+	k8sSmokeTestRegistry   = "ghcr.io"
+	k8sSmokeTestRepository = "meln5674/k8s-smoke-test"
+	k8sSmokeTestChart      = gingk8s.HelmChart{
+		OCIChartInfo: gingk8s.OCIChartInfo{
+			Registry: gingk8s.HelmRegistry{
+				Hostname: k8sSmokeTestRegistry,
+			},
+			Repository: k8sSmokeTestRepository + "/charts/k8s-smoke-test",
+			Version:    k8sSmokeTestVersion,
+		},
+	}
 
-	defaultTag       = "it"
-	beforeSuiteState suiteState
+	k8sSmokeTestDeploymentImage = gingk8s.ThirdPartyImage{
+		Name: k8sSmokeTestRegistry + "/" + k8sSmokeTestRepository + "/deployment" + ":" + k8sSmokeTestVersion,
+	}
+	k8sSmokeTestStatefulSetImage = gingk8s.ThirdPartyImage{
+		Name: k8sSmokeTestRegistry + "/" + k8sSmokeTestRepository + "/statefulset" + ":" + k8sSmokeTestVersion,
+	}
+	k8sSmokeTestStatefulSetImageArchive = gingk8s.ImageArchive{
+		Name:   k8sSmokeTestStatefulSetImage.Name,
+		Path:   filepath.Join(repoRoot, "integration-test/k8s-smoke-test-statefulset.tar"),
+		Format: gingk8s.DockerImageFormat,
+		NoPull: true,
+	}
+
+	k8sSmokeTestJobImageArchive = gingk8s.ImageArchive{
+		Name:   k8sSmokeTestRegistry + "/" + k8sSmokeTestRepository + "/job" + ":" + k8sSmokeTestVersion,
+		Path:   filepath.Join(repoRoot, "integration-test/k8s-smoke-test-job.tar"),
+		Format: gingk8s.OCIImageFormat,
+	}
+
+	watchPods      = gingk8s.KubectlWatcher{Kind: "pod", Flags: []string{"-A"}}
+	watchServices  = gingk8s.KubectlWatcher{Kind: "service", Flags: []string{"-A"}}
+	watchEndpoints = gingk8s.KubectlWatcher{Kind: "endpoints", Flags: []string{"-A"}}
+	watchIngresses = gingk8s.KubectlWatcher{Kind: "ingress", Flags: []string{"-A"}}
+	watchPVCs      = gingk8s.KubectlWatcher{Kind: "pvc", Flags: []string{"-A"}}
+
+	HTTP http.Client
+
+	kindIP string
 )
 
 type suiteState struct {
@@ -108,70 +205,74 @@ type suiteState struct {
 
 var _ = SynchronizedBeforeSuite(beforeSuiteGlobal, beforeSuiteLocal)
 
-func beforeSuiteGlobal() []byte {
-
-	BuildImage()
-	if !noPull {
-		FetchK8sSmokeTestImages()
-	}
-	InitKindCluster()
-
-	podWatch := gosh.
-		Command(kubectl.WatchPods(&kubectlOpts, &kindKubeOpts, nil, true)...).
-		WithStreams(GinkgoOutErr)
-	ExpectStart(podWatch)
-	DeferCleanup(func() {
-		ExpectStop(podWatch)
-	})
-	ingressWatch := gosh.
-		Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "get", "ingress", "-A", "-w")...).
-		WithStreams(GinkgoOutErr)
-	ExpectStart(ingressWatch)
-	DeferCleanup(func() {
-		ExpectStop(ingressWatch)
-	})
-	serviceWatch := gosh.
-		Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "get", "service", "-A", "-w")...).
-		WithStreams(GinkgoOutErr)
-	ExpectStart(serviceWatch)
-	DeferCleanup(func() {
-		ExpectStop(serviceWatch)
-	})
-	endpointWatch := gosh.
-		Command(kubectl.Kubectl(&kubectlOpts, &kindKubeOpts, "get", "endpoints", "-A", "-w")...).
-		WithStreams(GinkgoOutErr)
-	ExpectStart(endpointWatch)
-	DeferCleanup(func() {
-		ExpectStop(endpointWatch)
-	})
-
-	beforeSuiteStateJSON, err := json.Marshal(&beforeSuiteState)
-	Expect(err).ToNot(HaveOccurred())
-
-	return beforeSuiteStateJSON
-}
-
-func beforeSuiteLocal(beforeSuiteStateJSON []byte) {
+func beforeSuiteGlobal(ctx context.Context) []byte {
 	gosh.GlobalLog = GinkgoLogr
 	gosh.CommandLogLevel = 0
+
+	gk8s = gingk8s.ForSuite(GinkgoT())
+	gk8s.Options(gk8sOpts)
+
+	if !gk8sOpts.NoSuiteCleanup {
+		DeferCleanup(CleanupPVCDirs)
+	}
+
+	kinkImageID := gk8s.CustomImage(&kinkImage)
+	ingressNginxImageID := gk8s.ThirdPartyImage(&ingressNginxImage)
+	//gk8s.CustomImage(&localPathProvisionerImage)
+	gk8s.ThirdPartyImage(&k8sSmokeTestDeploymentImage)
+	gk8s.ThirdPartyImage(&k8sSmokeTestStatefulSetImage)
+	gk8s.ImageArchive(&k8sSmokeTestJobImageArchive)
+	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID)
+	gk8s.Release(kindClusterID, &sharedLocalPathProvisioner)
+	ingressNginxID := gk8s.Release(kindClusterID, &ingressNginx, ingressNginxImageID)
+	gk8s.ClusterAction(kindClusterID, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+		return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller").Run()
+	}), ingressNginxID)
+
+	gk8s.ClusterAction(kindClusterID, "Watch Pods", &watchPods)
+	gk8s.ClusterAction(kindClusterID, "Watch Endpoints", &watchEndpoints)
+	gk8s.ClusterAction(kindClusterID, "Watch Services", &watchServices)
+	gk8s.ClusterAction(kindClusterID, "Watch Ingresses", &watchIngresses)
+	gk8s.ClusterAction(kindClusterID, "Watch PVCs", &watchPVCs)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	DeferCleanup(cancel)
+	gk8s.Setup(ctx)
+
+	if !gk8sOpts.NoPull {
+		save, _ := localDocker.Save(ctx, []string{k8sSmokeTestStatefulSetImageArchive.Name}, k8sSmokeTestStatefulSetImageArchive.Path)
+		ExpectRun(save)
+	}
+
+	return gk8s.Serialize(kindClusterID)
+}
+
+func beforeSuiteLocal(ctx context.Context, in []byte) {
+	gosh.GlobalLog = GinkgoLogr
+	gosh.CommandLogLevel = 0
+
+	gk8s.Deserialize(in, GinkgoT(), &kindClusterID)
+	gk8s.Options(gk8sOpts)
 
 	klog.InitFlags(flag.CommandLine)
 	if _, gconfig := GinkgoConfiguration(); gconfig.Verbosity().GTE(gtypes.VerbosityLevelVerbose) {
 		flag.Set("v", "11")
 		klog.SetOutput(GinkgoWriter)
 	}
-	http.DefaultClient.Transport = transport.DebugWrappers(http.DefaultTransport)
-	http.DefaultClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	Expect(json.Unmarshal(beforeSuiteStateJSON, &beforeSuiteState)).To(Succeed())
-}
+	HTTP := *http.DefaultClient
+	HTTP.Transport = transport.DebugWrappers(http.DefaultTransport)
+	/*
+		http.DefaultClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	*/
 
-var (
-	GinkgoErr    = gosh.WriterErr(GinkgoWriter)
-	GinkgoOut    = gosh.WriterOut(GinkgoWriter)
-	GinkgoOutErr = gosh.SetStreams(GinkgoOut, GinkgoErr)
-)
+	ExpectRun(localDocker.
+		Docker(ctx, "inspect", fmt.Sprintf("%s-control-plane", kindCluster.Name), "-f", "{{ .NetworkSettings.Networks.kind.IPAddress }}").
+		WithStreams(gosh.FuncOut(gosh.SaveString(&kindIP))),
+	)
+	kindIP = strings.TrimSpace(kindIP)
+}
 
 func ExpectRun(cmd gosh.Commander) {
 	GinkgoHelper()
@@ -207,191 +308,10 @@ func DeferExpectStop(cmd gosh.Commander) {
 	}()
 }
 
-func BuildImage() {
-	beforeSuiteState.ImageRepo = "local.host/meln5674/kink"
-	beforeSuiteState.DefaultImage = fmt.Sprintf("%s:%s", beforeSuiteState.ImageRepo, defaultTag)
-	if noRebuild {
-		beforeSuiteState.ImageTag = defaultTag
-		beforeSuiteState.BuiltImage = beforeSuiteState.DefaultImage
-	} else {
-		beforeSuiteState.ImageTag = fmt.Sprintf("%d", time.Now().Unix())
-		beforeSuiteState.BuiltImage = fmt.Sprintf("%s:%s", beforeSuiteState.ImageRepo, beforeSuiteState.ImageTag)
-	}
-
-	if !noRebuild {
-		ExpectRun(
-			/*
-				gosh.
-					Command(docker.Build(&dockerOpts, builtImage, "..")...).
-					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}).
-					WithStreams(GinkgoOutErr),
-			*/
-			gosh.And(
-				gosh.
-					Command("../build-env.sh", "make", "-C", "..", "bin/kink.cover").
-					WithParentEnvAnd(map[string]string{"IMAGE_TAG": beforeSuiteState.ImageTag}),
-				gosh.
-					Command(docker.Build(&dockerOpts, beforeSuiteState.BuiltImage, "..", "-f", "../standalone.Dockerfile", "--build-arg", "KINK_BINARY=bin/kink.cover")...).
-					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}),
-				gosh.
-					Command(docker.Build(&dockerOpts, fmt.Sprintf("%s:it", beforeSuiteState.ImageRepo), "..", "-f", "../standalone.Dockerfile", "--build-arg", "KINK_BINARY=bin/kink.cover")...).
-					WithParentEnvAnd(map[string]string{"DOCKER_BUILDKIT": "1"}),
-			).WithStreams(GinkgoOutErr),
-		)
-
-		// TEMPORARY: Remove when local-path-provisioner feature/multiple-storage-classes is merged
-		ExpectRun(
-			gosh.And(
-				/*
-					gosh.
-						Command("../build-env.sh", "make", "-C", "../charts/local-path-provisioner", "build").
-						WithParentEnvAnd(map[string]string{"IMAGE_TAG": beforeSuiteState.ImageTag}),
-				*/
-				gosh.
-					Command("docker", "build", "-t", "local.host/meln5674/local-path-provisioner:testing", "-f", "../charts/local-path-provisioner/package/Dockerfile", "../charts/local-path-provisioner"),
-			).WithStreams(GinkgoOutErr),
-		)
-	}
-}
-
-func FetchK8sSmokeTestImages() {
-	ExpectRun(gosh.Command(docker.Pull(&dockerOpts, k8sSmokeTestDeploymentImage)...).WithStreams(GinkgoOutErr))
-	ExpectRun(gosh.Command(docker.Pull(&dockerOpts, k8sSmokeTestStatefulSetImage)...).WithStreams(GinkgoOutErr))
-	k8sSmokeTestJobImg, err := crane.Pull(k8sSmokeTestJobImage)
-	Expect(err).ToNot(HaveOccurred())
-	crane.Save(k8sSmokeTestJobImg, k8sSmokeTestJobImage, k8sSmokeTestJobTarballPath)
-}
-
 type KindOpts struct {
 	KindCommand       []string
 	KubeconfigOutPath string
 	ClusterName       string
-}
-
-func (k *KindOpts) CreateCluster(configPath, targetKubeconfigPath string) *gosh.Cmd {
-	cmd := []string{}
-	cmd = append(cmd, k.KindCommand...)
-	cmd = append(cmd, "create", "cluster")
-	if k.ClusterName != "" {
-		cmd = append(cmd, "--name", k.ClusterName)
-	}
-	if configPath != "" {
-		cmd = append(cmd, "--config", configPath)
-	}
-	if targetKubeconfigPath != "" {
-		cmd = append(cmd, "--kubeconfig", targetKubeconfigPath)
-	}
-	return gosh.Command(cmd...).WithStreams(GinkgoOutErr)
-}
-
-func (k *KindOpts) LoadImages(dockerImages ...string) *gosh.Cmd {
-	cmd := []string{}
-	cmd = append(cmd, k.KindCommand...)
-	cmd = append(cmd, "load", "docker-image")
-	if k.ClusterName != "" {
-		cmd = append(cmd, "--name", k.ClusterName)
-	}
-	cmd = append(cmd, dockerImages...)
-	return gosh.Command(cmd...).WithStreams(GinkgoOutErr)
-}
-
-func (k *KindOpts) DeleteCluster() *gosh.Cmd {
-	cmd := []string{}
-	cmd = append(cmd, k.KindCommand...)
-	cmd = append(cmd, "delete", "cluster")
-	if k.ClusterName != "" {
-		cmd = append(cmd, "--name", k.ClusterName)
-	}
-	return gosh.Command(cmd...).WithStreams(GinkgoOutErr)
-}
-
-func InitKindCluster() {
-	pwd, err := os.Getwd()
-	repoRoot := filepath.Join(pwd, "..")
-	Expect(err).ToNot(HaveOccurred())
-	kindConfig, err := ioutil.ReadFile(kindConfigPath + ".tpl")
-	kindConfig = []byte(strings.ReplaceAll(string(kindConfig), "${PWD}", repoRoot))
-	ioutil.WriteFile(kindConfigPath, kindConfig, 0700)
-
-	if !noCreate {
-		ExpectRun(kindOpts.CreateCluster(kindConfigPath, kindKubeconfigPath))
-	}
-	if !noSuiteCleanup {
-		DeferCleanup(func() {
-			CleanupPVCDirs()
-		})
-		DeferCleanup(func() {
-			ExpectRun(kindOpts.DeleteCluster())
-		})
-	}
-
-	if !noLoad {
-		ExpectRun(kindOpts.LoadImages(
-			beforeSuiteState.BuiltImage,
-			beforeSuiteState.DefaultImage,
-		))
-	}
-
-	if !noDeps {
-		lppKubeFlags := kindKubeOpts
-		lppKubeFlags.ConfigOverrides.Context.Namespace = "kube-system"
-		ExpectRun(
-			gosh.
-				Command(helm.Upgrade(
-					&helmOpts,
-					&helm.ChartFlags{
-						ChartName: "../charts/local-path-provisioner-0.0.24-dev.tgz",
-					},
-					&helm.ReleaseFlags{
-						Name: "shared-local-path-provisioner",
-						Set: map[string]string{
-							"storageClass.name":    "shared-local-path",
-							"nodePathMap":          "null",
-							"sharedFileSystemPath": sharedLocalPathProvisionerMount,
-							"fullnameOverride":     "shared-local-path-provisioner",
-							"configmap.name":       "shared-local-path-provisioner",
-						},
-					},
-					&lppKubeFlags,
-				)...).
-				WithStreams(GinkgoOutErr),
-		)
-
-		nginxKubeFlags := kindKubeOpts
-		nginxKubeFlags.ConfigOverrides.Context.Namespace = "ingress-nginx"
-		ExpectRun(
-			gosh.
-				Command(helm.Upgrade(
-					&helmOpts,
-					&helm.ChartFlags{
-						RepositoryURL: ingressNginxChartRepo,
-						ChartName:     ingressNginxChartName,
-						Version:       ingressNginxChartVersion,
-					},
-					&helm.ReleaseFlags{
-						Name: "ingress-nginx",
-						Set: map[string]string{
-							"controller.kind":                             "DaemonSet",
-							"controller.service.type":                     "ClusterIP",
-							"controller.hostPort.enabled":                 "true",
-							"controller.extraArgs.enable-ssl-passthrough": "true",
-						},
-						UpgradeFlags: []string{"--create-namespace"},
-					},
-					&nginxKubeFlags,
-				)...).
-				WithStreams(GinkgoOutErr),
-		)
-		ExpectRun(
-			gosh.
-				Command(kubectl.Kubectl(
-					&kubectlOpts,
-					&nginxKubeFlags,
-					"rollout", "status", "ds/ingress-nginx-controller",
-				)...).
-				WithStreams(GinkgoOutErr),
-		)
-	}
 }
 
 type KinkFlags struct {
@@ -399,11 +319,17 @@ type KinkFlags struct {
 	ConfigPath  string
 	ClusterName string
 	Env         map[string]string
+
+	ControlplanePortForwardPort int
+	FileGatewayPortForwardPort  int
+
+	LogLevel int
 }
 
-func (k *KinkFlags) Kink(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, args ...string) *gosh.Cmd {
+func (k *KinkFlags) Kink(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, args ...string) *gosh.Cmd {
 	cmd := make([]string, 0, len(k.Command)+len(args))
 	cmd = append(cmd, k.Command...)
+	cmd = append(cmd, fmt.Sprintf("-v%d", k.LogLevel))
 	cmd = append(cmd, flags.AsFlags(ku.Flags())...)
 	if k.ConfigPath != "" {
 		cmd = append(cmd, "--config", k.ConfigPath)
@@ -422,14 +348,25 @@ func (k *KinkFlags) Kink(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release 
 	}
 	cmd = append(cmd, release.ValuesFlags()...)
 	cmd = append(cmd, args...)
-	command := gosh.Command(cmd...).UsingProcessGroup()
+	command := gosh.Command(cmd...).WithContext(ctx).UsingProcessGroup()
 	if k.Env != nil {
 		command = command.WithParentEnvAnd(k.Env)
 	}
 	return command
 }
 
-func (k *KinkFlags) CreateCluster(ku *kubectl.KubeFlags, targetKubeconfigPath string, controlplaneIngressURL string, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
+func (k *KinkFlags) portForwardFlags() []string {
+	args := make([]string, 0, 2)
+	if k.ControlplanePortForwardPort != 0 {
+		args = append(args, fmt.Sprintf("--controlplane-port=%d", k.ControlplanePortForwardPort))
+	}
+	if k.FileGatewayPortForwardPort != 0 {
+		args = append(args, fmt.Sprintf("--file-gateway-port=%d", k.FileGatewayPortForwardPort))
+	}
+	return args
+}
+
+func (k *KinkFlags) CreateCluster(ctx context.Context, ku *kubectl.KubeFlags, targetKubeconfigPath string, controlplaneIngressURL string, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
 	args := []string{"create", "cluster"}
 	if targetKubeconfigPath != "" {
 		args = append(args, "--out-kubeconfig", targetKubeconfigPath)
@@ -437,48 +374,136 @@ func (k *KinkFlags) CreateCluster(ku *kubectl.KubeFlags, targetKubeconfigPath st
 	if controlplaneIngressURL != "" {
 		args = append(args, "--controlplane-ingress-url", controlplaneIngressURL)
 	}
+	args = append(args, k.portForwardFlags()...)
 	args = append(args, release.UpgradeFlags...)
-	return k.Kink(ku, chart, release, args...)
+	return k.Kink(ctx, ku, chart, release, args...)
 }
 
-func (k *KinkFlags) DeleteCluster(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
-	return k.Kink(ku, chart, release, "delete", "cluster", "--delete-pvcs")
+func (k *KinkFlags) DeleteCluster(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
+	return k.Kink(ctx, ku, chart, release, "delete", "cluster", "--delete-pvcs")
 }
 
-func (k *KinkFlags) Shell(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, script string) *gosh.Cmd {
-	return k.Kink(ku, chart, release, "sh", "--", script)
+func (k *KinkFlags) Shell(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, script string) *gosh.Cmd {
+	args := []string{"sh"}
+	args = append(args, k.portForwardFlags()...)
+	args = append(args, "--", script)
+	return k.Kink(ctx, ku, chart, release, args...)
 }
 
-func (k *KinkFlags) Load(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, typ string, flags []string, flag string, items ...string) *gosh.Cmd {
+func (k *KinkFlags) Load(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, typ string, flags []string, flag string, items ...string) *gosh.Cmd {
 	args := []string{"load", typ}
 	args = append(args, flags...)
 	for _, item := range items {
 		args = append(args, "--"+flag, item)
 	}
-	return k.Kink(ku, chart, release, args...)
+	return k.Kink(ctx, ku, chart, release, args...)
 }
 
-func (k *KinkFlags) LoadDockerImage(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, images ...string) *gosh.Cmd {
-	return k.Load(ku, chart, release, "docker-image", flags, "image", images...)
+func (k *KinkFlags) LoadDockerImage(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, images ...string) *gosh.Cmd {
+	return k.Load(ctx, ku, chart, release, "docker-image", flags, "image", images...)
 }
 
-func (k *KinkFlags) LoadDockerArchive(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) *gosh.Cmd {
-	return k.Load(ku, chart, release, "docker-archive", flags, "archive", archives...)
+func (k *KinkFlags) LoadDockerArchive(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) *gosh.Cmd {
+	return k.Load(ctx, ku, chart, release, "docker-archive", flags, "archive", archives...)
 }
 
-func (k *KinkFlags) LoadOCIArchive(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) *gosh.Cmd {
-	return k.Load(ku, chart, release, "oci-archive", flags, "archive", archives...)
+func (k *KinkFlags) LoadOCIArchive(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) *gosh.Cmd {
+	return k.Load(ctx, ku, chart, release, "oci-archive", flags, "archive", archives...)
 }
 
-func (k *KinkFlags) PortForward(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
-	return k.Kink(ku, chart, release, "port-forward")
+func (k *KinkFlags) PortForward(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
+	args := []string{"port-forward"}
+	args = append(args, k.portForwardFlags()...)
+	return k.Kink(ctx, ku, chart, release, args...)
 }
 
-func (k *KinkFlags) FileGatewaySend(ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, paths ...string) *gosh.Cmd {
+func (k *KinkFlags) FileGatewaySend(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, paths ...string) *gosh.Cmd {
 	args := []string{"file-gateway", "send"}
+	args = append(args, k.portForwardFlags()...)
 	args = append(args, flags...)
 	args = append(args, paths...)
-	return k.Kink(ku, chart, release, args...)
+	return k.Kink(ctx, ku, chart, release, args...)
+}
+
+type KinkCluster struct {
+	KinkFlags              KinkFlags
+	KubectlFlags           kubectl.KubectlFlags
+	KubeFlags              kubectl.KubeFlags
+	ChartFlags             helm.ChartFlags
+	ReleaseFlags           helm.ReleaseFlags
+	ControlplaneIngressURL string
+	TempDir                string
+	Namespace              string
+	LoadImageFlags         []string
+	LoadArchiveFlags       []string
+}
+
+func (k *KinkCluster) KubeconfigPath() string {
+	return filepath.Join(k.TempDir, "kubeconfig")
+}
+
+func (k *KinkCluster) Create(ctx context.Context, skipExisting bool) gosh.Commander {
+	rolloutFlags := []string{}
+	if k.Namespace != "" {
+		rolloutFlags = append(rolloutFlags, "-n", k.Namespace)
+	}
+	return gosh.And(
+		k.KinkFlags.CreateCluster(ctx, &k.KubeFlags, k.KubeconfigPath(), k.ControlplaneIngressURL, &k.ChartFlags, &k.ReleaseFlags),
+		gosh.FanOut(
+			gosh.
+				Command(kubectl.Kubectl(
+					&k.KubectlFlags,
+					&k.KubeFlags,
+					append([]string{"rollout", "status", fmt.Sprintf("sts/kink-%s-controlplane", k.KinkFlags.ClusterName)}, rolloutFlags...)...,
+				)...),
+			gosh.
+				Command(kubectl.Kubectl(
+					&k.KubectlFlags,
+					&k.KubeFlags,
+					append([]string{"rollout", "status", fmt.Sprintf("sts/kink-%s-worker", k.KinkFlags.ClusterName)}, rolloutFlags...)...,
+				)...),
+			gosh.
+				Command(kubectl.Kubectl(
+					&k.KubectlFlags,
+					&k.KubeFlags,
+					append([]string{"rollout", "status", fmt.Sprintf("deploy/kink-%s-lb-manager", k.KinkFlags.ClusterName)}, rolloutFlags...)...,
+				)...),
+		),
+	).
+		WithStreams(gingk8s.GinkgoOutErr)
+}
+
+func (k *KinkCluster) GetConnection() *gingk8s.KubernetesConnection {
+	return &gingk8s.KubernetesConnection{
+		Kubeconfig: k.KubeconfigPath(),
+	}
+}
+
+func (k *KinkCluster) GetTempDir() string {
+	return k.TempDir
+}
+
+func (k *KinkCluster) GetName() string {
+	return k.KinkFlags.ClusterName
+}
+
+func (k *KinkCluster) LoadImages(ctx context.Context, from gingk8s.Images, format gingk8s.ImageFormat, images []string, noCache bool) gosh.Commander {
+	return k.KinkFlags.LoadDockerImage(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadImageFlags, images...).WithStreams(GinkgoOutErr)
+}
+
+func (k *KinkCluster) LoadImageArchives(ctx context.Context, format gingk8s.ImageFormat, archives []string) gosh.Commander {
+	switch format {
+	case gingk8s.DockerImageFormat:
+		return k.KinkFlags.LoadDockerArchive(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadArchiveFlags, archives...).WithStreams(GinkgoOutErr)
+	case gingk8s.OCIImageFormat:
+		return k.KinkFlags.LoadOCIArchive(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadArchiveFlags, archives...).WithStreams(GinkgoOutErr)
+	default:
+		panic("Bad image format")
+	}
+}
+
+func (k *KinkCluster) Delete(ctx context.Context) gosh.Commander {
+	return k.KinkFlags.DeleteCluster(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags).WithStreams(GinkgoOutErr)
 }
 
 type ExtraChart struct {
@@ -503,7 +528,7 @@ type CaseControlplane struct {
 }
 
 type CaseSmokeTest struct {
-	Set     map[string]string
+	Set     gingk8s.Object
 	Ingress CaseIngressService
 }
 
@@ -511,397 +536,391 @@ type Case struct {
 	Name               string
 	LoadFlags          []string
 	SmokeTest          CaseSmokeTest
-	ExtraCharts        []ExtraChart
 	Controlplane       CaseControlplane
-	Disabled           bool
 	FileGatewayEnabled bool
 
-	Focus bool
+	ExtraClusterSetup func(gingk8s.Gingk8s, gingk8s.ClusterID, []gingk8s.ResourceDependency) []gingk8s.ResourceDependency
+
+	Focus    bool
+	Disabled bool
 }
+
+type Void struct{}
+
+var void = struct{}{}
 
 func (c Case) Run() bool {
 	if c.Disabled {
 		return false
 	}
 	f := func() {
-		It("should work", func(ctx context.Context) {
-			pwd, err := os.Getwd()
-			repoRoot := filepath.Join(pwd, "..")
-			Expect(err).ToNot(HaveOccurred())
+		var kinkCluster KinkCluster
+		var kinkOpts KinkFlags
+		var release helm.ReleaseFlags
+		var chart helm.ChartFlags
+		var kindKubeOpts kubectl.KubeFlags
+		var kinkClusterID gingk8s.ClusterID
+		BeforeEach(func(ctx context.Context) {
+			gingk8s.WithRandomPorts[Void](3, func(randPorts []int) Void {
+				gk8s = gk8s.ForSpec()
 
-			gocoverdir := os.Getenv("GOCOVERDIR")
-			Expect(gocoverdir).ToNot(BeEmpty(), "GOCOVERDIR was not set")
+				gocoverdir := os.Getenv("GOCOVERDIR")
+				Expect(gocoverdir).ToNot(BeEmpty(), "GOCOVERDIR was not set")
 
-			gocoverdir, err = filepath.Abs(filepath.Join("..", gocoverdir))
-			Expect(err).ToNot(HaveOccurred())
+				gocoverdirArgs := []string{
+					"--set", "extraVolumes[0].name=src",
+					"--set", "extraVolumes[0].hostPath.path=/src/kink/",
+					"--set", "extraVolumes[0].hostPath.type=Directory",
 
-			gocoverdirArgs := []string{
-				"--set", "extraVolumes[0].name=src",
-				"--set", "extraVolumes[0].hostPath.path=/src/kink/",
-				"--set", "extraVolumes[0].hostPath.type=Directory",
+					"--set", "extraVolumeMounts[0].name=src",
+					"--set", "extraVolumeMounts[0].mountPath=" + repoRoot,
 
-				"--set", "extraVolumeMounts[0].name=src",
-				"--set", "extraVolumeMounts[0].mountPath=" + repoRoot,
-
-				"--set", "extraEnv[0].name=GOCOVERDIR",
-				"--set", "extraEnv[0].value=" + gocoverdir,
-			}
-
-			kinkOpts := KinkFlags{
-				//Command:     []string{"go", "run", "../main.go"},
-				Command:     append([]string{"../bin/kink.cover"}, gocoverdirArgs...),
-				ConfigPath:  filepath.Join("../integration-test", "kink."+c.Name+".config.yaml"),
-				ClusterName: c.Name,
-				Env:         map[string]string{"GOCOVERDIR": gocoverdir},
-			}
-			rootedKinkOpts := KinkFlags{
-				//Command:     []string{"go", "run", "../main.go"},
-				Command:     append([]string{"bin/kink.cover"}, gocoverdirArgs...),
-				ConfigPath:  filepath.Join("integration-test", "kink."+c.Name+".config.yaml"),
-				ClusterName: c.Name,
-				Env:         map[string]string{"GOCOVERDIR": gocoverdir},
-			}
-			if _, gconfig := GinkgoConfiguration(); gconfig.Verbosity().GTE(gtypes.VerbosityLevelVerbose) {
-				kinkOpts.Command = append(kinkOpts.Command, "-v11")
-			}
-			kinkKubeconfigPath := filepath.Join("../integration-test", "kink."+c.Name+".kubeconfig")
-
-			chart := helm.ChartFlags{
-				ChartName: "../helm/kink",
-			}
-			rootedChart := helm.ChartFlags{
-				ChartName: "./helm/kink",
-			}
-			release := helm.ReleaseFlags{
-				Set: map[string]string{
-					"image.repository": beforeSuiteState.ImageRepo,
-					"image.tag":        beforeSuiteState.ImageTag,
-				},
-			}
-
-			By("Creating a cluster")
-			ExpectRun(kinkOpts.CreateCluster(
-				&kindKubeOpts,
-				kinkKubeconfigPath,
-				"https://localhost",
-				&chart,
-				&release,
-			).WithStreams(GinkgoOutErr))
-			DeferCleanup(func() {
-				if !noCleanup {
-					ExpectRun(kinkOpts.DeleteCluster(
-						&kindKubeOpts,
-						&chart,
-						&release,
-					).WithStreams(GinkgoOutErr))
+					"--set", "extraEnv[0].name=GOCOVERDIR",
+					"--set", "extraEnv[0].value=" + gocoverdir,
 				}
+
+				kindKubeOpts = kubectl.KubeFlags{
+					Kubeconfig: filepath.Join(repoRoot, "integration-test/kind/kubeconfig"), // TODO: Get this from sync state
+				}
+
+				kinkOpts = KinkFlags{
+					//Command:     []string{"go", "run", "../main.go"},
+					Command:     append([]string{filepath.Join(localbin, "kink.cover")}, gocoverdirArgs...),
+					ConfigPath:  filepath.Join(repoRoot, "integration-test/kink/", c.Name, "config.yaml"),
+					ClusterName: c.Name,
+
+					ControlplanePortForwardPort: randPorts[0],
+					FileGatewayPortForwardPort:  randPorts[1],
+
+					LogLevel: 10,
+				}
+				/*
+					if _, gconfig := GinkgoConfiguration(); gconfig.Verbosity().GTE(gtypes.VerbosityLevelVerbose) {
+						kinkOpts.Command = append(kinkOpts.Command, "-v11")
+					}
+				*/
+
+				chart = helm.ChartFlags{
+					ChartName: filepath.Join(repoRoot, "helm/kink"),
+				}
+				release = helm.ReleaseFlags{
+					Set: map[string]string{
+						"image.repository":          kinkImage.WithTag(""),
+						"image.tag":                 gingk8s.DefaultExtraCustomImageTags[0], // gingk8s.DefaultCustomImageTag,
+						"controlplane.nodeportHost": kindIP,
+					},
+				}
+
+				kinkCluster = KinkCluster{
+					KinkFlags: kinkOpts,
+					KubectlFlags: kubectl.KubectlFlags{
+						Command: localKubectl.Command,
+					},
+					KubeFlags:              kindKubeOpts,
+					ChartFlags:             chart,
+					ReleaseFlags:           release,
+					ControlplaneIngressURL: fmt.Sprintf("https://%s", kindIP),
+					Namespace:              c.Name,
+					TempDir:                filepath.Join(repoRoot, "integration-test/kink/", c.Name),
+					LoadImageFlags:         c.LoadFlags,
+					LoadArchiveFlags:       c.LoadFlags,
+				}
+
+				k8sSmokeTestImagesID := gk8s.ThirdPartyImage(&k8sSmokeTestDeploymentImage)
+				k8sSmokeTestImageArchivesID := gk8s.ImageArchives(&k8sSmokeTestStatefulSetImageArchive, &k8sSmokeTestJobImageArchive)
+				kinkImageID := gk8s.CustomImage(&kinkImage)
+				kinkClusterID = gk8s.Cluster(&kinkCluster, k8sSmokeTestImagesID, k8sSmokeTestImageArchivesID, kinkImageID)
+
+				gk8s.ClusterAction(
+					kinkClusterID,
+					"Connecting to the controlplane w/ kubectl within a shell script",
+					gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+						return kinkOpts.Shell(
+							ctx,
+							&kindKubeOpts,
+							&chart,
+							&release,
+							`
+						set -xe
+						echo "${KUBECONFIG}"
+						while ! kubectl version ; do
+							sleep 10;
+						done
+						kubectl cluster-info
+						while true; do
+							NODES=$(kubectl get nodes)
+							if ! grep NotReady <<< "${NODES}"; then
+								break
+							fi
+							echo 'Not all nodes are ready yet'
+							sleep 15
+						done
+						`,
+						).WithStreams(gingk8s.GinkgoOutErr).Run()
+					}),
+				)
+
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+				gk8s.Setup(ctx)
+
+				return void
 			})
+		})
+		It("should work", func() {
+			gingk8s.WithRandomPorts[Void](1, func(randPorts []int) Void {
 
-			ExpectRun(
-				gosh.
-					Command(kubectl.Kubectl(
-						&kubectlOpts,
-						&kindKubeOpts,
-						"rollout", "status", fmt.Sprintf("sts/kink-%s-controlplane", c.Name), "-n", c.Name,
-					)...).
-					WithStreams(GinkgoOutErr),
-			)
-			ExpectRun(
-				gosh.
-					Command(kubectl.Kubectl(
-						&kubectlOpts,
-						&kindKubeOpts,
-						"rollout", "status", fmt.Sprintf("sts/kink-%s-worker", c.Name), "-n", c.Name,
-					)...).
-					WithStreams(GinkgoOutErr),
-			)
-			// TEMPORARY: Remove when local-path-provisioner feature/multiple-storage-classes is merged
-			ExpectRunFlaky(5, func() *gosh.Cmd {
-				return kinkOpts.LoadDockerImage(
-					&kindKubeOpts,
-					&chart,
-					&release,
-					c.LoadFlags,
-					"local.host/meln5674/local-path-provisioner:testing",
-				).WithStreams(GinkgoOutErr)
-			})
-			ExpectRun(
-				gosh.
-					Command(kubectl.Kubectl(
-						&kubectlOpts,
-						&kindKubeOpts,
-						"rollout", "status", fmt.Sprintf("deploy/kink-%s-lb-manager", c.Name), "-n", c.Name,
-					)...).
-					WithStreams(GinkgoOutErr),
-			)
+				ctx, cancel := context.WithCancel(context.Background())
+				gk8s = gk8s.ForSpec()
 
-			kinkKubeOpts := kubectl.KubeFlags{
-				Kubeconfig: kinkKubeconfigPath,
-			}
+				fileGatewayHost := kindIP
 
-			By("Connecting to the controlplane w/ kubectl within a shell script")
-			ExpectRun(kinkOpts.Shell(
-				&kindKubeOpts,
-				&chart,
-				&release,
-				`
-				set -xe
-				while ! kubectl version ; do
-					sleep 10;
-				done
-				kubectl cluster-info
-				while true; do
-					NODES=$(kubectl get nodes)
-					if ! grep NotReady <<< "${NODES}"; then
-						break
-					fi
-					echo 'Not all nodes are ready yet'
-					sleep 15
-				done
-				`,
-			).WithStreams(GinkgoOutErr))
-
-			if !noDeps && !noLoad {
-				k8sSmokeTestStatefulSetLoadFlags := make([]string, 0, len(c.LoadFlags)+2)
-				k8sSmokeTestStatefulSetLoadFlags = append(k8sSmokeTestStatefulSetLoadFlags, c.LoadFlags...)
-				k8sSmokeTestStatefulSetLoadFlags = append(k8sSmokeTestStatefulSetLoadFlags, "--parallel-loads", "1")
-
-				By("Loading an image from the docker daemon")
-				Eventually(func() error {
-					return kinkOpts.LoadDockerImage(
+				deps := []gingk8s.ResourceDependency{}
+				if !c.Controlplane.External {
+					fileGatewayHost = "localhost"
+					portForwarder := kinkOpts.PortForward(
+						ctx,
 						&kindKubeOpts,
 						&chart,
 						&release,
-						k8sSmokeTestStatefulSetLoadFlags,
-						k8sSmokeTestStatefulSetImage,
-					).WithStreams(GinkgoOutErr).Run()
-				}, "15m").Should(Succeed())
+					).WithStreams(gingk8s.GinkgoOutErr)
+					ExpectStart(portForwarder)
+					DeferCleanup(func() { portForwarder.Kill() })
+				}
 
-				By("Loading an image from a docker archive")
-
-				ExpectRun(gosh.Command(docker.Save(&dockerOpts, k8sSmokeTestDeploymentImage)...).WithStreams(gosh.FileOut(k8sSmokeTestDeploymentTarballPath), GinkgoErr))
 				Eventually(func() error {
-					return kinkOpts.LoadDockerArchive(
-						&kindKubeOpts,
-						&chart,
-						&release,
-						c.LoadFlags,
-						k8sSmokeTestDeploymentTarballPath,
-					).WithStreams(GinkgoOutErr).Run()
-				}, "15m").Should(Succeed())
+					return gk8s.Kubectl(ctx, &kinkCluster, "version").Run()
+				}, "30s", "1s").Should(Succeed())
 
-				By("Loading an image from an OCI archive")
-				Eventually(func() error {
-					return kinkOpts.LoadOCIArchive(
-						&kindKubeOpts,
-						&chart,
-						&release,
-						c.LoadFlags, k8sSmokeTestJobTarballPath,
-					).WithStreams(GinkgoOutErr).Run()
-				}).Should(Succeed())
-			}
+				gk8s.ClusterAction(kinkClusterID, "Watch Pods", &watchPods)
+				gk8s.ClusterAction(kinkClusterID, "Watch Endpoints", &watchEndpoints)
+				gk8s.ClusterAction(kinkClusterID, "Watch Services", &watchServices)
+				gk8s.ClusterAction(kinkClusterID, "Watch Ingresses", &watchIngresses)
+				gk8s.ClusterAction(kinkClusterID, "Watch PVCs", &watchPVCs)
 
-			if !c.Controlplane.External {
-				By("Forwarding the controplane port")
-				controlplanePortForward := kinkOpts.PortForward(
-					&kindKubeOpts,
-					&chart,
-					&release,
-				).WithStreams(GinkgoOutErr)
-				ExpectStart(controlplanePortForward)
-				DeferCleanup(func() {
-					ExpectStop(controlplanePortForward)
-				})
-			}
-			Eventually(func() error {
-				return gosh.Command(kubectl.Version(&kubectlOpts, &kinkKubeOpts)...).WithStreams(GinkgoOutErr).Run()
-			}, "30s", "1s").Should(Succeed())
+				insecureTransport := http.DefaultTransport.(*http.Transport).Clone()
+				insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
-			By("Watching pods")
-			podWatch := gosh.
-				Command(kubectl.WatchPods(&kubectlOpts, &kinkKubeOpts, nil, true)...).
-				WithStreams(GinkgoOutErr)
-			ExpectStart(podWatch)
-			DeferCleanup(func() {
-				ExpectStop(podWatch)
-			})
+				insecureClient := HTTP
+				insecureClient.Transport = transport.DebugWrappers(insecureTransport)
 
-			if !noDeps {
-				for _, chart := range c.ExtraCharts {
-					By(fmt.Sprintf("Releasing %s the helm chart", chart.Chart.ChartName))
-
-					ExpectRun(gosh.Command(helm.RepoAdd(&helmOpts, &chart.Chart)...).WithStreams(GinkgoOutErr))
-					ExpectRun(gosh.Command(helm.RepoUpdate(&helmOpts, chart.Chart.RepoName())...).WithStreams(GinkgoOutErr))
-					ExpectRun(gosh.Command(helm.Upgrade(&helmOpts, &chart.Chart, &chart.Release, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
-					if !noCleanup {
-						DeferCleanup(func() {
-							ExpectRun(gosh.Command(helm.Delete(&helmOpts, &chart.Chart, &chart.Release, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
-						})
+				if !gk8sOpts.NoDeps {
+					if c.ExtraClusterSetup != nil {
+						deps = append(deps, c.ExtraClusterSetup(gk8s, kinkClusterID, deps)...)
 					}
 
-					for _, rollout := range chart.Rollouts {
-						ExpectRun(gosh.Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "rollout", "status", rollout)...).WithStreams(GinkgoOutErr))
+					k8sSmokeTest := gingk8s.HelmRelease{
+						Name:         "k8s-smoke-test",
+						Chart:        &k8sSmokeTestChart,
+						UpgradeFlags: []string{"--debug", "--timeout=15m"},
+						Set:          c.SmokeTest.Set,
+						SkipDelete:   true,
 					}
+					k8sSmokeTestID := gk8s.Release(kinkClusterID, &k8sSmokeTest, deps...)
+
+					k8sSmokeTestPatchID := gk8s.ClusterAction(
+						kinkClusterID,
+						"Patch smoke-test to include hostport",
+						gingk8s.ClusterCommander(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) gosh.Commander {
+							return gosh.And(
+								g.Kubectl(ctx, c, "patch", "deploy/k8s-smoke-test", "-p", `{
+				            "spec": {
+				                    "template": {
+				                            "spec": {
+				                                    "containers": [
+				                                            {
+				                                                    "name": "k8s-smoke-test",
+				                                                    "ports": [
+				                                                            {
+				                                                                    "containerPort": 8080,
+				                                                                    "hostPort": 9080
+				                                                            },
+				                                                            {
+				                                                                    "containerPort": 8443,
+				                                                                    "hostPort": 9443
+				                                                            }
+				                                                    ]
+				                                            }
+				                                    ]
+				                            }
+				                    }
+				            }
+				    }`),
+								gosh.FanOut(
+									g.Kubectl(ctx, c, "rollout", "status", "deploy/k8s-smoke-test"),
+									g.Kubectl(ctx, c, "rollout", "status", "sts/k8s-smoke-test"),
+								),
+							)
+						}),
+						k8sSmokeTestID,
+					)
+					deps = []gingk8s.ResourceDependency{k8sSmokeTestPatchID}
 				}
 
-				By("Releasing the main helm chart")
+				DeferCleanup(cancel)
+				gk8s.Setup(ctx)
 
-				k8sSmokeTestRelease := helm.ReleaseFlags{
-					Name:         "k8s-smoke-test",
-					UpgradeFlags: []string{"--debug", "--timeout=15m"},
-					Set:          c.SmokeTest.Set,
+				var mergedValues k8ssmoketest.MergedValues
+				ExpectRun(
+					localHelm.
+						Helm(ctx, kinkCluster.GetConnection(), "get", "values", "--all", "-o", "json", "k8s-smoke-test").
+						WithStreams(gosh.FuncOut(gosh.SaveJSON(&mergedValues))),
+				)
+
+				kinkKubeConfigLoader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+					&clientcmd.ClientConfigLoadingRules{
+						ExplicitPath: kinkCluster.GetConnection().Kubeconfig,
+					},
+					&clientcmd.ConfigOverrides{},
+				)
+
+				kinkKubeconfigNamespace, _, err := kinkKubeConfigLoader.Namespace()
+				Expect(err).ToNot(HaveOccurred())
+
+				kinkKubeconfig, err := kinkKubeConfigLoader.ClientConfig()
+				Expect(err).ToNot(HaveOccurred())
+
+				cfg := &test.Config{
+					// TODO: Extract certs from inner and outter ingress and add to this client instead
+					HTTP:                 &insecureClient,
+					K8sConfig:            kinkKubeconfig,
+					ReleaseNamespace:     kinkKubeconfigNamespace,
+					ReleaseName:          "k8s-smoke-test",
+					MergedValues:         &mergedValues,
+					PortForwardLocalPort: randPorts[0],
+					IngressHostname:      kindIP,
+					IngressTLS:           c.SmokeTest.Ingress.HTTPSOnly,
 				}
-				ExpectRun(gosh.Command(helm.Upgrade(&helmOpts, &k8sSmokeTestChart, &k8sSmokeTestRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
-				if !noCleanup {
-					DeferCleanup(func() {
-						ExpectRun(gosh.Command(helm.Delete(&helmOpts, &k8sSmokeTestChart, &k8sSmokeTestRelease, &kinkKubeOpts)...).WithStreams(GinkgoOutErr))
-					})
+
+				k8sClient, err := cfg.K8sClient()
+				Expect(err).ToNot(HaveOccurred())
+
+				fullname := cfg.Fullname()
+
+				By("Finding pod to port-forward...")
+				deploymentPod, err := cfg.PickDeploymentPod(ctx, k8sClient, fullname)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Testing Port-Forwarding...")
+				Expect(k8ssmoketest.TestPortForward(ctx, cfg, deploymentPod)).To(Succeed())
+
+				By("Testing Ingress...")
+				Eventually(func() error { return k8ssmoketest.TestIngress(ctx, cfg) }, "30s", "500ms").Should(Succeed())
+
+				By("Getting StatefulSet Service...")
+				statefulSetService, err := cfg.GetStatefulSetService(ctx, k8sClient, fullname)
+				Expect(err).ToNot(HaveOccurred())
+
+				// The smoke test expects a "real" cluster, so it expects that nodeports are available on their own ports on a given host,
+				// and that loadbalancers are available on their ingresses.
+				// This is true within the cluster, but to test it outside, we have to replace the inner nodeport with the outer nodeport that
+				// maps to it, and replace the load balancer ingress IP's (which are the pod IPs of the guest nodes) with the host's node IP
+				var loadBalancerService corev1.Service
+
+				var outerNodePort int32
+				Eventually(func() int32 {
+
+					ExpectRun(gk8s.Kubectl(ctx, &kindCluster, "get", "svc", "-o", "json", fmt.Sprintf("kink-%s-lb", c.Name), "-n", c.Name).WithStreams(gosh.FuncOut(gosh.SaveJSON(&loadBalancerService))))
+					innerNodePort := statefulSetService.Spec.Ports[0].NodePort
+					for _, port := range loadBalancerService.Spec.Ports {
+						if port.TargetPort.IntVal == innerNodePort {
+							outerNodePort = port.NodePort
+							break
+						}
+						GinkgoLogr.Info("Ignoring non-matching port", "port", port, "expecting", statefulSetService.Spec.Ports[0])
+					}
+					return outerNodePort
+				}, "30s", "500ms").ShouldNot(BeZero(), "Load balancer service did not contain expected port for smoke test nodeport service")
+				statefulSetService.Spec.Ports = []corev1.ServicePort{statefulSetService.Spec.Ports[0]}
+				statefulSetService.Spec.Ports[0].NodePort = outerNodePort
+				for ix := range statefulSetService.Status.LoadBalancer.Ingress {
+					statefulSetService.Status.LoadBalancer.Ingress[ix].Hostname = ""
+					statefulSetService.Status.LoadBalancer.Ingress[ix].IP = kindIP
+					statefulSetService.Status.LoadBalancer.Ingress[ix].Ports = []corev1.PortStatus{{Port: outerNodePort}}
 				}
-				ExpectRun(gosh.Command(kubectl.Kubectl(&kubectlOpts, &kinkKubeOpts, "patch", "deploy/k8s-smoke-test", "-p", `{
-                        "spec": {
-                                "template": {
-                                        "spec": {
-                                                "containers": [
-                                                        {
-                                                                "name": "k8s-smoke-test",
-                                                                "ports": [
-                                                                        {
-                                                                                "containerPort": 8080,
-                                                                                "hostPort": 9080
-                                                                        },
-                                                                        {
-                                                                                "containerPort": 8443,
-                                                                                "hostPort": 9443
-                                                                        }
-                                                                ]
-                                                        }
-                                                ]
-                                        }
-                                }
-                        }
-                }`)...).WithStreams(GinkgoOutErr))
-			}
-			ExpectRun(
-				gosh.
-					Command(kubectl.Kubectl(
-						&kubectlOpts,
-						&kinkKubeOpts,
-						"rollout", "status", "deploy/k8s-smoke-test",
-					)...).
-					WithStreams(GinkgoOutErr),
-			)
-			ExpectRun(
-				gosh.
-					Command(kubectl.Kubectl(
-						&kubectlOpts,
-						&kinkKubeOpts,
-						"rollout", "status", "sts/k8s-smoke-test",
-					)...).
-					WithStreams(GinkgoOutErr),
-			)
 
-			var mergedValues k8ssmoketest.MergedValues
-			Expect(
-				gosh.
-					Command(
-						helmOpts.Helm(
-							&kinkKubeOpts,
-							"get", "values", "--all", "-o", "json", "k8s-smoke-test",
-						)...).
-					WithStreams(
-						gosh.FuncOut(gosh.SaveJSON(&mergedValues)),
-						GinkgoErr,
-					).
-					Run(),
-			).To(Succeed())
+				By("Testing NodePort...")
+				Expect(k8ssmoketest.TestNodePort(ctx, cfg, statefulSetService)).To(Succeed())
 
-			kinkKubeConfigLoader := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-				&clientcmd.ClientConfigLoadingRules{
-					ExplicitPath: kinkKubeOpts.Kubeconfig,
-				},
-				&kinkKubeOpts.ConfigOverrides,
-			)
+				By("Testing LoadBalancer...")
+				Expect(k8ssmoketest.TestLoadBalancer(ctx, cfg, statefulSetService)).To(Succeed())
 
-			kinkKubeconfigNamespace, _, err := kinkKubeConfigLoader.Namespace()
-			Expect(err).ToNot(HaveOccurred())
+				By("Testing Logs...")
+				Expect(k8ssmoketest.TestLogs(ctx, cfg, k8sClient, deploymentPod, os.Stdout)).To(Succeed())
 
-			kinkKubeconfig, err := kinkKubeConfigLoader.ClientConfig()
-			Expect(err).ToNot(HaveOccurred())
+				if c.SmokeTest.Ingress.StaticHostname != "" {
+					By("Interacting with the released service over a static ingress (HTTP)")
+					req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:80/rwx/test-file", kindIP), nil)
+					Expect(err).ToNot(HaveOccurred())
+					req.Host = c.SmokeTest.Ingress.StaticHostname
+					Eventually(func() error { _, err := insecureClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+					Eventually(func() int {
+						resp, err := insecureClient.Do(req)
+						Expect(err).ToNot(HaveOccurred())
+						return resp.StatusCode
+					}, "30s", "1s").Should(Equal(http.StatusOK))
 
-			k8ssmoketest.Test(ctx, &test.Config{
-				HTTP:                 http.DefaultClient,
-				K8sConfig:            kinkKubeconfig,
-				ReleaseNamespace:     kinkKubeconfigNamespace,
-				ReleaseName:          "k8s-smoke-test",
-				MergedValues:         &mergedValues,
-				PortForwardLocalPort: 8080,
+					By("Interacting with the released service over a static ingress (HTTPS)")
+					req, err = http.NewRequest("GET", fmt.Sprintf("https://%s:443/rwx/test-file", kindIP), nil)
+					Expect(err).ToNot(HaveOccurred())
+					req.Host = c.SmokeTest.Ingress.StaticHostname
+					Eventually(func() error { _, err := insecureClient.Do(req); return err }, "30s", "1s").Should(Succeed())
+					Eventually(func() int {
+						resp, err := insecureClient.Do(req)
+						Expect(err).ToNot(HaveOccurred())
+						return resp.StatusCode
+					}, "30s", "1s").Should(Equal(http.StatusOK))
+				}
+
+				if c.FileGatewayEnabled {
+
+					kubeOpts := kindKubeOpts
+					kubeOpts.ConfigOverrides.Context.Namespace = c.Name
+
+					By("Sending a file through the file gateway")
+					ExpectRun(kinkOpts.
+						FileGatewaySend(
+							ctx,
+							&kindKubeOpts,
+							&chart,
+							&release,
+							[]string{
+								"--send-dest", sharedLocalPathProvisionerMount,
+								"--send-exclude", "integration-test/volumes", // This will cause an infinite loop of copying to itself
+								"--send-exclude", "integration-test/log", // This is being written to while the test is running, meaning it will be bigger than its header, thus fail
+								"--send-exclude", "integration-test/**/images/**", // These are just large, so copying them will slow down the tests
+								"--send-exclude", "integration-test/**.tar",
+								"--file-gateway-ingress-url", fmt.Sprintf("https://%s", fileGatewayHost),
+								"--port-forward=false",
+								// "-v11",
+							},
+							"Makefile",
+							"integration-test",
+						).
+						WithStreams(gingk8s.GinkgoOutErr).
+						WithWorkingDir(repoRoot),
+					)
+
+					By("Checking the files were received")
+					ExpectRun(gosh.FanOut(
+						gk8s.KubectlExec(
+							ctx, &kindCluster,
+							fmt.Sprintf("kink-%s-controlplane-0", c.Name),
+							"cat", []string{filepath.Join(sharedLocalPathProvisionerMount, "Makefile")},
+							"-n", c.Name,
+						),
+						gk8s.KubectlExec(
+							ctx, &kindCluster,
+							fmt.Sprintf("kink-%s-controlplane-0", c.Name),
+							"ls", []string{filepath.Join(sharedLocalPathProvisionerMount, "Makefile")},
+							"-n", c.Name,
+						),
+					))
+
+				}
+
+				return void
 			})
-
-			if c.SmokeTest.Ingress.StaticHostname != "" {
-				By("Interacting with the released service over a static ingress (HTTP)")
-				req, err := http.NewRequest("GET", "http://localhost:80/rwx/test-file", nil)
-				Expect(err).ToNot(HaveOccurred())
-				req.Host = c.SmokeTest.Ingress.StaticHostname
-				// TODO: Actually set up a cert for this
-				http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
-				resp, err := http.DefaultClient.Do(req)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-				By("Interacting with the released service over a static ingress (HTTPS)")
-				req, err = http.NewRequest("GET", "https://localhost:443/rwx/test-file", nil)
-				Expect(err).ToNot(HaveOccurred())
-				req.Host = c.SmokeTest.Ingress.StaticHostname
-				// TODO: Actually set up a cert for this
-				http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-				Eventually(func() error { _, err := http.DefaultClient.Do(req); return err }, "30s", "1s").Should(Succeed())
-				resp, err = http.DefaultClient.Do(req)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			}
-
-			if !c.FileGatewayEnabled {
-				return
-			}
-
-			kubeOpts := kindKubeOpts
-			kubeOpts.ConfigOverrides.Context.Namespace = c.Name
-
-			By("Sending a file through the file gateway")
-			ExpectRun(rootedKinkOpts.FileGatewaySend(
-				&rootedKindKubeOpts,
-				&rootedChart,
-				&release,
-				[]string{
-					"--send-dest", sharedLocalPathProvisionerMount,
-					"--send-exclude", "integration-test/volumes", // This will cause an infinite loop of copying to itself
-					"--send-exclude", "integration-test/log", // This is being written to while the test is running, meaning it will be bigger than its header, thus fail
-					"--file-gateway-ingress-url", "https://localhost",
-					"--port-forward=false",
-					"-v11",
-				},
-				"Makefile",
-				"integration-test",
-			).WithStreams(GinkgoOutErr).WithWorkingDir(repoRoot))
-
-			By("Checking the files were received")
-			ExpectRun(gosh.Command(
-				kubectl.Exec(
-					&kubectlOpts,
-					&kubeOpts,
-					fmt.Sprintf("kink-%s-controlplane-0", c.Name),
-					false, false,
-					"cat", filepath.Join(sharedLocalPathProvisionerMount, "Makefile"))...,
-			).WithStreams(GinkgoOutErr))
-			ExpectRun(gosh.Command(
-				kubectl.Exec(
-					&kubectlOpts,
-					&kubeOpts,
-					fmt.Sprintf("kink-%s-controlplane-0", c.Name),
-					false, false,
-					"ls", filepath.Join(sharedLocalPathProvisionerMount, "Makefile"))...,
-			).WithStreams(GinkgoOutErr))
 		})
 
 	}
@@ -913,9 +932,6 @@ func (c Case) Run() bool {
 }
 
 func CleanupPVCDirs() {
-	pwd, err := os.Getwd()
-	Expect(err).ToNot(HaveOccurred())
-	repoRoot := filepath.Join(pwd, "..")
 	cleaner := gosh.Command("./hack/clean-tests-afterwards.sh").WithStreams(GinkgoOutErr)
 	cleaner.Cmd.Dir = repoRoot
 	ExpectRun(cleaner)
@@ -924,29 +940,23 @@ func CleanupPVCDirs() {
 var _ = Case{
 	Name: "k3s",
 	SmokeTest: CaseSmokeTest{
-		Set: map[string]string{
+		Set: gingk8s.Object{
 			"persistence.rwo.storageClassName": "standard", // default
 			"persistence.rwx.storageClassName": "shared-local-path",
 			"deployment.ingress.hostname":      "smoke-test.k3s.ingress.local",
+			"deployment.ingress.className":     "nginx",
+			"statefulset.nodePortHostname":     func() string { return kindIP },
 		},
 		Ingress: CaseIngressService{
-			StaticHostname: "k8s-sfb.k3s.ingress.outer",
+			StaticHostname: "smoke-test.k3s.ingress.outer",
 		},
 	},
-	ExtraCharts: []ExtraChart{
-		{
-			Chart: helm.ChartFlags{
-				RepositoryURL: ingressNginxChartRepo,
-				ChartName:     ingressNginxChartName,
-				Version:       ingressNginxChartVersion,
-			},
-			Release: helm.ReleaseFlags{
-				Name: "ingress-nginx",
-			},
-			Rollouts: []string{
-				"deploy/ingress-nginx-controller",
-			},
-		},
+	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
+		ingressNginxID := gk8s.Release(c, &ingressNginxInner, deps...)
+		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "deploy/ingress-nginx-controller").Run()
+		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
+		return []gingk8s.ResourceDependency{rolloutID}
 	},
 	Controlplane: CaseControlplane{
 		External: true,
@@ -957,47 +967,29 @@ var _ = Case{
 var _ = Case{
 	Name: "k3s-ha",
 	SmokeTest: CaseSmokeTest{
-		Set: map[string]string{
-			"persistence.enabled":                         "true",
-			"persistence.storageClass":                    "shared-local-path",
-			"persistence.accessModes":                     "{ReadWriteMany}",
-			"replicaCount":                                "2",
-			"podAntiAffinityPreset":                       "hard",
-			"ingress.enabled":                             "true",
-			"ingress.ingressClassName":                    "nginx",
-			"ingress.hostname":                            "wordpress.k3s-ha.ingress.local",
-			"mariadb.enabled":                             "true",
-			"memcached.enabled":                           "true",
-			"image.pullPolicy":                            "Never",
-			"mariadb.image.pullPolicy":                    "Never",
-			"memcached.image.pullPolicy":                  "Never",
-			"updateStrategy.rollingUpdate.maxSurge":       "0",
-			"updateStrategy.rollingUpdate.maxUnavailable": "1",
+		Set: gingk8s.Object{
+			"persistence.rwo.storageClassName": "standard", // default
+			"persistence.rwx.storageClassName": "shared-local-path",
+			"deployment.ingress.hostname":      "smoke-test.k3s-ha.ingress.local",
+			"deployment.ingress.className":     "nginx",
+			"statefulset.nodePortHostname":     func() string { return kindIP },
 		},
 		Ingress: CaseIngressService{
 			Namespace:      "default",
 			Name:           "ingress-nginx-controller",
 			HTTPPortName:   "http",
 			HTTPSPortName:  "https",
-			Hostname:       "wordpress.k3s-ha.ingress.local",
-			StaticHostname: "k8s-sfb.k3s-ha.ingress.outer",
+			Hostname:       "smoke-test.k3s-ha.ingress.local",
+			StaticHostname: "smoke-test.k3s-ha.ingress.outer",
 			HTTPSOnly:      true,
 		},
 	},
-	ExtraCharts: []ExtraChart{
-		{
-			Chart: helm.ChartFlags{
-				RepositoryURL: ingressNginxChartRepo,
-				ChartName:     ingressNginxChartName,
-				Version:       ingressNginxChartVersion,
-			},
-			Release: helm.ReleaseFlags{
-				Name: "ingress-nginx",
-			},
-			Rollouts: []string{
-				"deploy/ingress-nginx-controller",
-			},
-		},
+	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
+		ingressNginxID := gk8s.Release(c, &ingressNginxInner, deps...)
+		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "deploy/ingress-nginx-controller").Run()
+		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
+		return []gingk8s.ResourceDependency{rolloutID}
 	},
 
 	Controlplane: CaseControlplane{
@@ -1012,51 +1004,28 @@ var _ = Case{
 	Name:      "k3s-single",
 	LoadFlags: []string{"--only-load-workers=false"},
 	SmokeTest: CaseSmokeTest{
-		Set: map[string]string{
-			"persistence.enabled":          "true",
-			"persistence.storageClass":     "shared-local-path",
-			"persistence.accessModes":      "{ReadWriteMany}",
-			"replicaCount":                 "1",
-			"ingress.enabled":              "true",
-			"ingress.ingressClassName":     "nginx",
-			"ingress.hostname":             "wordpress.k3s-single.ingress.local",
-			"mariadb.enabled":              "true",
-			"memcached.enabled":            "true",
-			"service.type":                 "ClusterIP",
-			"image.pullPolicy":             "Never",
-			"mariadb.image.pullPolicy":     "Never",
-			"memcached.image.pullPolicy":   "Never",
-			"updateStrategy.type":          "Recreate",
-			"updateStrategy.rollingUpdate": "null",
+		Set: gingk8s.Object{
+			"persistence.rwo.storageClassName": "standard", // default
+			"persistence.rwx.storageClassName": "shared-local-path",
+			"deployment.ingress.hostname":      "smoke-test.k3s-single.ingress.local",
+			"deployment.ingress.className":     "nginx",
+			"statefulset.nodePortHostname":     func() string { return kindIP },
 		},
 		Ingress: CaseIngressService{
 			Namespace:      "default",
 			Name:           "ingress-nginx-controller",
 			HTTPPortName:   "http",
 			HTTPSPortName:  "https",
-			Hostname:       "wordpress.k3s-single.ingress.local",
-			StaticHostname: "k8s-sfb.k3s-single.ingress.outer",
+			Hostname:       "smoke-test.k3s-single.ingress.local",
+			StaticHostname: "smoke-test.k3s-single.ingress.outer",
 		},
 	},
-	ExtraCharts: []ExtraChart{
-		{
-			Chart: helm.ChartFlags{
-				RepositoryURL: ingressNginxChartRepo,
-				ChartName:     ingressNginxChartName,
-				Version:       ingressNginxChartVersion,
-			},
-			Release: helm.ReleaseFlags{
-				Name: "ingress-nginx",
-				Set: map[string]string{
-					"controller.kind": "DaemonSet",
-					//"controller.service.type":     "ClusterIP",
-					"controller.hostPort.enabled": "true",
-				},
-			},
-			Rollouts: []string{
-				"ds/ingress-nginx-controller",
-			},
-		},
+	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
+		ingressNginxID := gk8s.Release(c, &ingressNginxInnerDS, deps...)
+		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller").Run()
+		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
+		return []gingk8s.ResourceDependency{rolloutID}
 	},
 
 	FileGatewayEnabled: true,
@@ -1065,52 +1034,29 @@ var _ = Case{
 var _ = Case{
 	Name: "rke2",
 	SmokeTest: CaseSmokeTest{
-		Set: map[string]string{
-			"persistence.enabled":                         "true",
-			"persistence.storageClass":                    "shared-local-path",
-			"persistence.accessModes":                     "{ReadWriteMany}",
-			"replicaCount":                                "2",
-			"podAntiAffinityPreset":                       "hard",
-			"ingress.enabled":                             "true",
-			"ingress.ingressClassName":                    "nginx",
-			"ingress.hostname":                            "wordpress.rke2.ingress.local",
-			"mariadb.enabled":                             "true",
-			"memcached.enabled":                           "true",
-			"service.type":                                "ClusterIP",
-			"image.pullPolicy":                            "Never",
-			"mariadb.image.pullPolicy":                    "Never",
-			"memcached.image.pullPolicy":                  "Never",
-			"updateStrategy.rollingUpdate.maxSurge":       "0",
-			"updateStrategy.rollingUpdate.maxUnavailable": "1",
+		Set: gingk8s.Object{
+			"persistence.rwo.storageClassName":              "standard", // default
+			"persistence.rwx.storageClassName":              "shared-local-path",
+			"deployment.ingress.hostname":                   "smoke-test.rke2.ingress.local",
+			"deployment.ingress.className":                  "nginx",
+			"deployment.ingress.tls[0].hosts[0].secretName": "",
+			"statefulset.nodePortHostname":                  func() string { return kindIP },
 		},
 		Ingress: CaseIngressService{
 			Namespace:     "default",
 			Name:          "ingress-nginx-controller",
 			HTTPPortName:  "http",
 			HTTPSPortName: "https",
-			Hostname:      "wordpress.rke2.ingress.local",
+			Hostname:      "smoke-test.rke2.ingress.local",
 			HTTPSOnly:     true,
 		},
 	},
-	ExtraCharts: []ExtraChart{
-		{
-			Chart: helm.ChartFlags{
-				RepositoryURL: ingressNginxChartRepo,
-				ChartName:     ingressNginxChartName,
-				Version:       ingressNginxChartVersion,
-			},
-			Release: helm.ReleaseFlags{
-				Name: "ingress-nginx",
-				Set: map[string]string{
-					"controller.kind": "DaemonSet",
-					//"controller.service.type":     "ClusterIP",
-					"controller.hostPort.enabled": "true",
-				},
-			},
-			Rollouts: []string{
-				"ds/ingress-nginx-controller",
-			},
-		},
+	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
+		ingressNginxID := gk8s.Release(c, &ingressNginxInnerDS, deps...)
+		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller").Run()
+		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
+		return []gingk8s.ResourceDependency{rolloutID}
 	},
 }.Run()
 

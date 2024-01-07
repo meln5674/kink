@@ -19,13 +19,14 @@ release:
     sharedPersistence.storageClassName: "shared-local-path"
     fileGateway.enabled: "true"
     controlplane.extraArgs[0]: '--disable=traefik'
-    controlplane.extraArgs[1]: '--disable=svclb'
+    controlplane.extraArgs[1]: '--disable=servicelb'
     controlplane.service.type: NodePort
-    controlplane.nodeportHost: localhost
+    # controlplane.nodeportHost: TODO-INJECT-FROM-KIND
 
     loadBalancer.enabled: 'true'
     kubeconfig.enabled: 'true'
     loadBalancer.ingress.enabled: 'true'
+    loadBalancer.service.type: 'NodePort'
     loadBalancer.ingress.classMappings[0].guestClassName: nginx
     loadBalancer.ingress.classMappings[0].className: nginx
     loadBalancer.ingress.classMappings[0].nodePort.namespace: default
@@ -34,7 +35,7 @@ release:
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
     loadBalancer.ingress.static[0].className: nginx
     # loadBalancer.ingress.static[0].annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
-    loadBalancer.ingress.static[0].hosts[0].host: k8s-sfb.k3s-ha.ingress.outer
+    loadBalancer.ingress.static[0].hosts[0].host: smoke-test.k3s-ha.ingress.outer
     loadBalancer.ingress.static[0].hosts[0].tls: 'true'
     loadBalancer.ingress.static[0].hosts[0].paths[0].path: /
     loadBalancer.ingress.static[0].hosts[0].paths[0].pathType: Prefix
