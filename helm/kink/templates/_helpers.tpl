@@ -292,9 +292,9 @@ https://{{ include "kink.controlplane.fullname" . }}:{{ .Values.controlplane.ser
 - --is-control-plane
 {{- if gt (int $dot.Values.controlplane.replicaCount) 1 }}
 - --etcd-config-path={{ $dataDir }}/server/db/etcd/config
+- --etcd-member-name-path={{ $dataDir }}/server/db/etcd/name
 - --etcd-endpoint=https://{{ include "kink.controlplane.fullname" $dot }}:2379
 - --etcd-reset-member
-- --pod-name=$(POD_NAME)
 - --pod-ip=$(POD_IP)
 {{- end }}
 - --extra-manifests-system-path=/etc/kink/extra-manifests/{{ $extraManifestsDir }}/system/

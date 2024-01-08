@@ -6,6 +6,8 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -22,7 +24,6 @@ import (
 
 	etcdtypes "go.etcd.io/etcd/api/v3/etcdserverpb"
 	etcd "go.etcd.io/etcd/client/v3"
-	etcdyaml "go.etcd.io/etcd/client/v3/yaml"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
 	yamlwriter "sigs.k8s.io/yaml"
@@ -41,14 +42,14 @@ var initCmd = &cobra.Command{
 }
 
 type initEtcdArgsT struct {
-	ResetMember bool   `rflag:"usage=If present and node is an existing etcd member,, update it with the new IP"`
-	ConfigPath  string `rflag:"usage=Path to etcd config file to mutate"`
-	Endpoint    string `rflag:"usage=Endpoint to connect to etcd cluster"`
+	ResetMember    bool   `rflag:"usage=If present and node is an existing etcd member,, update it with the new IP"`
+	MemberNamePath string `rflag:"usage=Path to file containing etcd member name"`
+	ConfigPath     string `rflag:"usage=Path to etcd config file to mutate"`
+	Endpoint       string `rflag:"usage=Endpoint to connect to etcd cluster"`
 }
 
 type initPodArgsT struct {
-	Name string `rflag:"usage=Name of the pod this is executing in"`
-	IP   string `rflag:"usage=IP of the pod this is executing in"`
+	IP string `rflag:"usage=IP of the pod this is executing in"`
 }
 
 type initExtraManifestsArgsT struct {
@@ -127,20 +128,48 @@ func resetEtcdMember(ctx context.Context, args *initEtcdArgsT, pod *initPodArgsT
 	if !args.ResetMember {
 		return nil
 	}
-	_, err := os.Stat(args.ConfigPath)
+	configF, err := os.Open(args.ConfigPath)
 	if errors.Is(err, os.ErrNotExist) {
 		klog.InfoS("Etcd file doesn't exist, assuming first run, not resetting member", "path", args.ConfigPath)
 		return nil
 	}
 	if err != nil {
-		return errors.Wrapf(err, "Failed to check for etcd config at path %s", args.ConfigPath)
+		return errors.Wrapf(err, "Failed to open etcd config at path %s", args.ConfigPath)
 	}
-	etcdCfg, err := etcdyaml.NewConfig(args.ConfigPath)
+	var config ETCDConfig
+	err = yaml.NewYAMLOrJSONDecoder(configF, 1024).Decode(&config)
 	if err != nil {
-		return errors.Wrapf(err, "Failed to load etcd config from path %s", args.ConfigPath)
+		return err
 	}
-	etcdCfg.Endpoints = []string{args.Endpoint}
-	etcdClient, err := etcd.New(*etcdCfg)
+
+	memberName, err := os.ReadFile(args.MemberNamePath)
+
+	yc := config.ServerTrust
+	tlscfg := tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	if yc.TrustedCAFile != "" {
+		tlscfg.RootCAs = x509.NewCertPool()
+		caPEM, err := os.ReadFile(yc.TrustedCAFile)
+		if err != nil {
+			return err
+		}
+		tlscfg.RootCAs.AppendCertsFromPEM(caPEM)
+	}
+
+	if yc.CertFile != "" && yc.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(yc.CertFile, yc.KeyFile)
+		if err != nil {
+			return err
+		}
+		tlscfg.Certificates = []tls.Certificate{cert}
+	}
+
+	etcdCfg := etcd.Config{
+		Endpoints: []string{args.Endpoint},
+		TLS:       &tlscfg,
+	}
+	etcdClient, err := etcd.New(etcdCfg)
 	if err != nil {
 		return errors.Wrap(err, "Failed to build etcd client")
 	}
@@ -150,13 +179,13 @@ func resetEtcdMember(ctx context.Context, args *initEtcdArgsT, pod *initPodArgsT
 	}
 	var member *etcdtypes.Member
 	for ix := range members.Members {
-		if members.Members[ix].Name == pod.Name {
+		if members.Members[ix].Name == string(memberName) {
 			member = members.Members[ix]
 			break
 		}
 	}
 	if member == nil {
-		klog.InfoS("No etcd member matched name, assuming not part of the cluster, not resetting member", "name", pod.Name, "members", members.Members)
+		klog.InfoS("No etcd member matched name, assuming not part of the cluster, not resetting member", "name", memberName, "members", members.Members)
 		return nil
 	}
 	_, err = etcdClient.MemberUpdate(ctx, member.ID, []string{fmt.Sprintf("https://%s:2380", pod.IP)})
@@ -365,4 +394,46 @@ func generateRegistriesConfig(ctx context.Context, args *initRegistriesArgsT) er
 		return err
 	}
 	return nil
+}
+
+// EtcdConfig is copied from https://github.com/k3s-io/k3s/blob/102ff763287bd9b1346f394f945cf448ea570b4f/pkg/daemons/executor/executor.go#L53
+// because k3s can't be imported
+type ETCDConfig struct {
+	InitialOptions                  `json:",inline"`
+	Name                            string      `json:"name,omitempty"`
+	ListenClientURLs                string      `json:"listen-client-urls,omitempty"`
+	ListenClientHTTPURLs            string      `json:"listen-client-http-urls,omitempty"`
+	ListenMetricsURLs               string      `json:"listen-metrics-urls,omitempty"`
+	ListenPeerURLs                  string      `json:"listen-peer-urls,omitempty"`
+	AdvertiseClientURLs             string      `json:"advertise-client-urls,omitempty"`
+	DataDir                         string      `json:"data-dir,omitempty"`
+	SnapshotCount                   int         `json:"snapshot-count,omitempty"`
+	ServerTrust                     ServerTrust `json:"client-transport-security"`
+	PeerTrust                       PeerTrust   `json:"peer-transport-security"`
+	ForceNewCluster                 bool        `json:"force-new-cluster,omitempty"`
+	HeartbeatInterval               int         `json:"heartbeat-interval"`
+	ElectionTimeout                 int         `json:"election-timeout"`
+	Logger                          string      `json:"logger"`
+	LogOutputs                      []string    `json:"log-outputs"`
+	ExperimentalInitialCorruptCheck bool        `json:"experimental-initial-corrupt-check"`
+}
+
+type ServerTrust struct {
+	CertFile       string `json:"cert-file"`
+	KeyFile        string `json:"key-file"`
+	ClientCertAuth bool   `json:"client-cert-auth"`
+	TrustedCAFile  string `json:"trusted-ca-file"`
+}
+
+type PeerTrust struct {
+	CertFile       string `json:"cert-file"`
+	KeyFile        string `json:"key-file"`
+	ClientCertAuth bool   `json:"client-cert-auth"`
+	TrustedCAFile  string `json:"trusted-ca-file"`
+}
+
+type InitialOptions struct {
+	AdvertisePeerURL string `json:"initial-advertise-peer-urls,omitempty"`
+	Cluster          string `json:"initial-cluster,omitempty"`
+	State            string `json:"initial-cluster-state,omitempty"`
 }

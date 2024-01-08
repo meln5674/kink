@@ -720,11 +720,41 @@ func (c Case) Run() bool {
 					return gk8s.Kubectl(ctx, &kinkCluster, "version").Run()
 				}, "30s", "1s").Should(Succeed())
 
-				gk8s.ClusterAction(kinkClusterID, "Watch Pods", &watchPods)
-				gk8s.ClusterAction(kinkClusterID, "Watch Endpoints", &watchEndpoints)
-				gk8s.ClusterAction(kinkClusterID, "Watch Services", &watchServices)
-				gk8s.ClusterAction(kinkClusterID, "Watch Ingresses", &watchIngresses)
-				gk8s.ClusterAction(kinkClusterID, "Watch PVCs", &watchPVCs)
+				controlplaneRolloutID := gk8s.ClusterAction(
+					kinkClusterID,
+					"Rollout cluster controlplane",
+					gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, _ gingk8s.Cluster) error {
+						return gosh.And(
+							gk8s.Kubectl(
+								ctx, &kindCluster,
+								"-n", c.Name,
+								"rollout", "restart", fmt.Sprintf("sts/kink-%s-controlplane", c.Name),
+							),
+							gk8s.Kubectl(
+								ctx, &kindCluster,
+								"-n", c.Name,
+								"rollout", "restart", fmt.Sprintf("sts/kink-%s-worker", c.Name),
+							),
+							gk8s.Kubectl(
+								ctx, &kindCluster,
+								"-n", c.Name,
+								"rollout", "status", fmt.Sprintf("sts/kink-%s-controlplane", c.Name),
+							),
+							gk8s.Kubectl(
+								ctx, &kindCluster,
+								"-n", c.Name,
+								"rollout", "status", fmt.Sprintf("sts/kink-%s-worker", c.Name),
+							),
+						).Run()
+					}),
+				)
+				deps = append(deps, controlplaneRolloutID)
+
+				gk8s.ClusterAction(kinkClusterID, "Watch Pods", &watchPods, deps...)
+				gk8s.ClusterAction(kinkClusterID, "Watch Endpoints", &watchEndpoints, deps...)
+				gk8s.ClusterAction(kinkClusterID, "Watch Services", &watchServices, deps...)
+				gk8s.ClusterAction(kinkClusterID, "Watch Ingresses", &watchIngresses, deps...)
+				gk8s.ClusterAction(kinkClusterID, "Watch PVCs", &watchPVCs, deps...)
 
 				insecureTransport := http.DefaultTransport.(*http.Transport).Clone()
 				insecureTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
