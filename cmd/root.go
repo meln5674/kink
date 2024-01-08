@@ -41,10 +41,11 @@ type kinkArgsT struct {
 	KubectlCommand []string `rflag:"usage=Command to execute for kubectl"`
 	DockerCommand  []string `rflag:"usage=Command to execute for docker"`
 
-	ChartName       string `rflag:"name=chart,usage=Name of KinK Helm Chart"`
-	ChartVersion    string `rflag:"usage=Version of the chart to install"`
-	ChartRepository string `rflag:"name=repository=url,usage=URL of KinK Helm Chart repository"`
-	DoRepoUpdate    bool   `rflag:"usage=Update the helm repo before upgrading. Note that if a new chart version has become availabe since install or last upgrade,, this will result in upgrading the chart. If this unacceptable,, set this to false,, or use --chart-version to pin a specific version"`
+	ChartName              string `rflag:"name=chart,usage=Name of KinK Helm Chart"`
+	ChartVersion           string `rflag:"usage=Version of the chart to install"`
+	ChartRepository        string `rflag:"name=repository-url,usage=URL of KinK Helm Chart repository"`
+	ChartRegistryPlainHTTP bool   `rflag:"name=registry-plain-http,usage=Use insecure HTTP to pull KinK Helm Chart from OCI"`
+	DoRepoUpdate           bool   `rflag:"usage=Update the helm repo before upgrading. Note that if a new chart version has become availabe since install or last upgrade,, this will result in upgrading the chart. If this unacceptable,, set this to false,, or use --chart-version to pin a specific version"`
 
 	ClusterName string `rflag:"name=name,usage=Name of the kink cluster"`
 
@@ -99,6 +100,7 @@ func (k kinkArgsT) ConfigOverrides() cfg.Config {
 			ChartName:     k.ChartName,
 			Version:       k.ChartVersion,
 			RepositoryURL: k.ChartRepository,
+			PlainHTTP:     k.ChartRegistryPlainHTTP,
 		},
 		Release: helm.ClusterReleaseFlags{
 			ClusterName: k.ClusterName,
@@ -223,7 +225,7 @@ func loadConfig(args *kinkArgsT) (*resolvedConfigT, error) {
 		}
 	} else {
 		doc := corev1.ConfigMap{}
-		if !cfg.KinkConfig.Chart.IsLocalChart() {
+		if !cfg.KinkConfig.Chart.IsLocalChart() && !cfg.KinkConfig.Chart.IsOCIChart() {
 			klog.Info("Ensuring helm repo exists...")
 			repoAdd := helm.RepoAdd(&cfg.KinkConfig.Helm, &cfg.KinkConfig.Chart)
 			err = gosh.

@@ -92,12 +92,14 @@ type ChartFlags struct {
 	RepositoryURL string `json:"repositoryURL"`
 	ChartName     string `json:"chart"`
 	Version       string `json:"version"`
+	PlainHTTP     bool   `json:"plainHTTP"`
 }
 
 func (c *ChartFlags) Override(c2 *ChartFlags) {
 	util.Override(&c.RepositoryURL, &c2.RepositoryURL)
 	util.Override(&c.ChartName, &c2.ChartName)
 	util.Override(&c.Version, &c2.Version)
+	util.Override(&c.PlainHTTP, &c2.PlainHTTP)
 }
 
 func (c *ChartFlags) IsOCIChart() bool {
@@ -127,6 +129,9 @@ func (c *ChartFlags) UpgradeFlags() []string {
 	cmd := make([]string, 0)
 	if c.Version != "" {
 		cmd = append(cmd, "--version", c.Version)
+	}
+	if c.PlainHTTP {
+		cmd = append(cmd, "--plain-http")
 	}
 	return cmd
 }
