@@ -3,6 +3,10 @@ kind: Config
 kubernetes:
   context:
     namespace: k3s
+kubectl:
+  command: [bin/kubectl]
+helm:
+  command: [bin/helm]
 release:
   upgradeFlags:
   - --timeout=1h
@@ -42,11 +46,6 @@ release:
     loadBalancer.service.type: 'NodePort'
     kubeconfig.enabled: 'true'
 
-    controlplane.ingress.enabled:  "true"
-    controlplane.ingress.hosts[0]: "k3s.cluster.local"
-    controlplane.ingress.className: nginx
-    controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
-
     loadBalancer.ingress.enabled: 'true'
     loadBalancer.ingress.classMappings[0].guestClassName: nginx
     loadBalancer.ingress.classMappings[0].className: nginx
@@ -66,5 +65,4 @@ release:
     'registries.mirrors.registry-1\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
     'registries.mirrors.index\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
   setString:
-    controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"
     extraArgs[1]: '1'

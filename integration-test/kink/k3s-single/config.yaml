@@ -3,6 +3,10 @@ kind: Config
 kubernetes:
   context:
     namespace: k3s-single
+kubectl:
+  command: [bin/kubectl]
+helm:
+  command: [bin/helm]
 release:
   upgradeFlags:
   - --timeout=1h

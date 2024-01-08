@@ -3,6 +3,10 @@ kind: Config
 kubernetes:
   context:
     namespace: rke2
+kubectl:
+  command: [bin/kubectl]
+helm:
+  command: [bin/helm]
 release:
   upgradeFlags:
   - --timeout=1h
@@ -21,6 +25,11 @@ release:
     controlplane.extraArgs[0]: '--disable=rke2-ingress-nginx'
     controlplane.extraArgs[1]: '--disable=rke2-metrics-server'
 
+    controlplane.ingress.enabled:  "true"
+    controlplane.ingress.hosts[0]: "rke2.cluster.local"
+    controlplane.ingress.className: nginx
+    controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/backend-protocol: "HTTPS"
+
     loadBalancer.enabled: 'true'
     loadBalancer.service.type: 'NodePort'
     kubeconfig.enabled: 'true'
@@ -34,5 +43,6 @@ release:
     'registries.mirrors.registry-1\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
     'registries.mirrors.index\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
   setString:
+    controlplane.ingress.annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"
     loadBalancer.ingress.classMappings[0].hostPort.httpsPort: '443'
     loadBalancer.ingress.classMappings[0].annotations.nginx\.ingress\.kubernetes\.io/ssl-passthrough: "true"

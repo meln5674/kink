@@ -3,8 +3,10 @@ package e2e_test
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -99,6 +101,38 @@ var (
 			"service.type":               "NodePort",
 			"configData.proxy.remoteurl": "https://registry-1.docker.io",
 			"fullnameOverride":           "proxy-registry",
+		},
+	}
+	dockerRegistry = gingk8s.HelmRelease{
+		Name:  "docker-registry",
+		Chart: &dockerRegistryChart,
+		Set: gingk8s.Object{
+			"persistence.enabled": true,
+			"service.type":        "NodePort",
+		},
+	}
+
+	chartmuseumRepo = gingk8s.HelmRepo{
+		Name: "chartmuseum",
+		URL:  "https://chartmuseum.github.io/charts",
+	}
+	chartmuseumChart = gingk8s.HelmChart{
+		RemoteChartInfo: gingk8s.RemoteChartInfo{
+			Repo:    &chartmuseumRepo,
+			Name:    "chartmuseum",
+			Version: "3.10.1",
+		},
+	}
+	chartmuseumImage = gingk8s.ThirdPartyImage{
+		Name: "ghcr.io/helm/chartmuseum:v0.13.1",
+	}
+	chartmuseum = gingk8s.HelmRelease{
+		Name:  "chartmuseum",
+		Chart: &chartmuseumChart,
+		Set: gingk8s.Object{
+			"persistence.enabled":  true,
+			"service.type":         "NodePort",
+			"env.open.DISABLE_API": false,
 		},
 	}
 
@@ -219,14 +253,15 @@ var (
 
 	HTTP http.Client
 
-	kindIP string
+	state suiteState
 )
 
 type suiteState struct {
-	ImageRepo    string
-	ImageTag     string
-	DefaultImage string
-	BuiltImage   string
+	KindIP             string
+	ChartVersion       string
+	ChartmuseumPort    string
+	DockerRegistryPort string
+	Gingk8s            []byte
 }
 
 var _ = SynchronizedBeforeSuite(beforeSuiteGlobal, beforeSuiteLocal)
@@ -242,6 +277,17 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 		DeferCleanup(CleanupPVCDirs)
 	}
 
+	state.ChartVersion = fmt.Sprintf("0.1.0-%s", gingk8s.DefaultExtraCustomImageTags[0])
+	ExpectRun(localHelm.
+		Helm(
+			ctx, kindCluster.GetConnection(),
+			"package", "../helm/kink",
+			"--destination", filepath.Join(repoRoot, "bin"),
+			"--version", state.ChartVersion,
+		),
+	)
+	chartTarballPath := filepath.Join(repoRoot, fmt.Sprintf("bin/kink-%s.tgz", state.ChartVersion))
+
 	kinkImageID := gk8s.CustomImage(&kinkImage)
 	ingressNginxImageID := gk8s.ThirdPartyImage(&ingressNginxImage)
 	//gk8s.CustomImage(&localPathProvisionerImage)
@@ -250,12 +296,93 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 	dockerRegistryImageID := gk8s.ThirdPartyImage(&dockerRegistryImage)
 	gk8s.ImageArchive(&k8sSmokeTestJobImageArchive)
 	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID, dockerRegistryImageID)
+	getKindIPID := gk8s.ClusterAction(kindClusterID, "Get KinD cluster IP", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+		err := localDocker.
+			Docker(
+				ctx,
+				"inspect", fmt.Sprintf("%s-control-plane", kindCluster.Name),
+				"-f", "{{ .NetworkSettings.Networks.kind.IPAddress }}",
+			).
+			WithStreams(gosh.FuncOut(gosh.SaveString(&state.KindIP))).
+			Run()
+		state.KindIP = strings.TrimSpace(state.KindIP)
+		return err
+	}))
+
 	gk8s.Release(kindClusterID, &sharedLocalPathProvisioner)
+
 	ingressNginxID := gk8s.Release(kindClusterID, &ingressNginx, ingressNginxImageID)
 	gk8s.ClusterAction(kindClusterID, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
 		return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller").Run()
 	}), ingressNginxID)
+
 	gk8s.Release(kindClusterID, &proxyRegistry, dockerRegistryImageID)
+
+	chartmuseumID := gk8s.Release(kindClusterID, &chartmuseum)
+	gk8s.ClusterAction(
+		kindClusterID, "Push chart to Chart Museum",
+		gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+			err := gk8s.
+				Kubectl(ctx, c,
+					"get", "svc/chartmuseum",
+					"--template", "{{ (index .spec.ports 0).nodePort }}",
+				).
+				WithStreams(gosh.FuncOut(gosh.SaveString(&state.ChartmuseumPort))).
+				Run()
+			if err != nil {
+				return err
+			}
+
+			By("Uploading chart to chartmuseum")
+			tarball, err := os.Open(chartTarballPath)
+			if err != nil {
+				return err
+			}
+			defer tarball.Close()
+			resp, err := http.Post(fmt.Sprintf("http://%s:%s/api/charts", state.KindIP, state.ChartmuseumPort), "application/octet-stream", tarball)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			_, err = io.Copy(GinkgoWriter, resp.Body)
+			if resp.StatusCode != http.StatusCreated {
+				return fmt.Errorf("Status code %d", resp.StatusCode)
+			}
+			return nil
+		}),
+		chartmuseumID,
+		getKindIPID,
+	)
+
+	dockerRegistryID := gk8s.Release(kindClusterID, &dockerRegistry)
+	gk8s.ClusterAction(
+		kindClusterID, "Push chart to OCI registry",
+		gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
+			err := gk8s.
+				Kubectl(ctx, c,
+					"get", "svc/docker-registry",
+					"--template", "{{ (index .spec.ports 0).nodePort }}",
+				).
+				WithStreams(gosh.FuncOut(gosh.SaveString(&state.DockerRegistryPort))).
+				Run()
+			if err != nil {
+				return err
+			}
+			err = localHelm.
+				Helm(
+					ctx, c.GetConnection(),
+					"push", chartTarballPath, fmt.Sprintf("oci://%s:%s/charts", state.KindIP, state.DockerRegistryPort),
+					"--plain-http",
+				).
+				Run()
+			if err != nil {
+				return err
+			}
+			return nil
+		}),
+		dockerRegistryID,
+		getKindIPID,
+	)
 
 	gk8s.ClusterAction(kindClusterID, "Watch Pods", &watchPods)
 	gk8s.ClusterAction(kindClusterID, "Watch Endpoints", &watchEndpoints)
@@ -272,14 +399,21 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 		ExpectRun(save)
 	}
 
-	return gk8s.Serialize(kindClusterID)
+	state.Gingk8s = gk8s.Serialize(kindClusterID)
+	out, err := json.Marshal(&state)
+	Expect(err).ToNot(HaveOccurred())
+
+	return out
 }
 
 func beforeSuiteLocal(ctx context.Context, in []byte) {
 	gosh.GlobalLog = GinkgoLogr
 	gosh.CommandLogLevel = 0
 
-	gk8s.Deserialize(in, GinkgoT(), &kindClusterID)
+	err := json.Unmarshal(in, &state)
+	Expect(err).ToNot(HaveOccurred())
+
+	gk8s.Deserialize(state.Gingk8s, GinkgoT(), &kindClusterID)
 	gk8s.Options(gk8sOpts)
 
 	klog.InitFlags(flag.CommandLine)
@@ -295,11 +429,6 @@ func beforeSuiteLocal(ctx context.Context, in []byte) {
 		}
 	*/
 
-	ExpectRun(localDocker.
-		Docker(ctx, "inspect", fmt.Sprintf("%s-control-plane", kindCluster.Name), "-f", "{{ .NetworkSettings.Networks.kind.IPAddress }}").
-		WithStreams(gosh.FuncOut(gosh.SaveString(&kindIP))),
-	)
-	kindIP = strings.TrimSpace(kindIP)
 }
 
 func ExpectRun(cmd gosh.Commander) {
@@ -374,9 +503,12 @@ func (k *KinkFlags) Kink(ctx context.Context, ku *kubectl.KubeFlags, chart *helm
 	if chart.Version != "" {
 		cmd = append(cmd, "--chart-version", chart.Version)
 	}
+	if chart.PlainHTTP {
+		cmd = append(cmd, "--registry-plain-http")
+	}
 	cmd = append(cmd, release.ValuesFlags()...)
 	cmd = append(cmd, args...)
-	command := gosh.Command(cmd...).WithContext(ctx).UsingProcessGroup()
+	command := gosh.Command(cmd...).WithContext(ctx).UsingProcessGroup().WithWorkingDir(repoRoot)
 	if k.Env != nil {
 		command = command.WithParentEnvAnd(k.Env)
 	}
@@ -566,6 +698,7 @@ type Case struct {
 	SmokeTest          CaseSmokeTest
 	Controlplane       CaseControlplane
 	FileGatewayEnabled bool
+	GetChart           func() helm.ChartFlags
 
 	ExtraClusterSetup func(gingk8s.Gingk8s, gingk8s.ClusterID, []gingk8s.ResourceDependency) []gingk8s.ResourceDependency
 
@@ -628,14 +761,12 @@ func (c Case) Run() bool {
 					}
 				*/
 
-				chart = helm.ChartFlags{
-					ChartName: filepath.Join(repoRoot, "helm/kink"),
-				}
+				chart = c.GetChart()
 				release = helm.ReleaseFlags{
 					Set: map[string]string{
 						"image.repository":          kinkImage.WithTag(""),
 						"image.tag":                 gingk8s.DefaultExtraCustomImageTags[0], // gingk8s.DefaultCustomImageTag,
-						"controlplane.nodeportHost": kindIP,
+						"controlplane.nodeportHost": state.KindIP,
 					},
 				}
 
@@ -647,7 +778,7 @@ func (c Case) Run() bool {
 					KubeFlags:              kindKubeOpts,
 					ChartFlags:             chart,
 					ReleaseFlags:           release,
-					ControlplaneIngressURL: fmt.Sprintf("https://%s", kindIP),
+					ControlplaneIngressURL: fmt.Sprintf("https://%s", state.KindIP),
 					Namespace:              c.Name,
 					TempDir:                filepath.Join(repoRoot, "integration-test/kink/", c.Name),
 					LoadImageFlags:         c.LoadFlags,
@@ -701,7 +832,7 @@ func (c Case) Run() bool {
 				ctx, cancel := context.WithCancel(context.Background())
 				gk8s = gk8s.ForSpec()
 
-				fileGatewayHost := kindIP
+				fileGatewayHost := state.KindIP
 
 				deps := []gingk8s.ResourceDependency{}
 				if !c.Controlplane.External {
@@ -846,7 +977,7 @@ func (c Case) Run() bool {
 					ReleaseName:          "k8s-smoke-test",
 					MergedValues:         &mergedValues,
 					PortForwardLocalPort: randPorts[0],
-					IngressHostname:      kindIP,
+					IngressHostname:      state.KindIP,
 					IngressTLS:           c.SmokeTest.Ingress.HTTPSOnly,
 				}
 
@@ -893,7 +1024,7 @@ func (c Case) Run() bool {
 				statefulSetService.Spec.Ports[0].NodePort = outerNodePort
 				for ix := range statefulSetService.Status.LoadBalancer.Ingress {
 					statefulSetService.Status.LoadBalancer.Ingress[ix].Hostname = ""
-					statefulSetService.Status.LoadBalancer.Ingress[ix].IP = kindIP
+					statefulSetService.Status.LoadBalancer.Ingress[ix].IP = state.KindIP
 					statefulSetService.Status.LoadBalancer.Ingress[ix].Ports = []corev1.PortStatus{{Port: outerNodePort}}
 				}
 
@@ -908,7 +1039,7 @@ func (c Case) Run() bool {
 
 				if c.SmokeTest.Ingress.StaticHostname != "" {
 					By("Interacting with the released service over a static ingress (HTTP)")
-					req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:80/rwx/test-file", kindIP), nil)
+					req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:80/rwx/test-file", state.KindIP), nil)
 					Expect(err).ToNot(HaveOccurred())
 					req.Host = c.SmokeTest.Ingress.StaticHostname
 					Eventually(func() error { _, err := insecureClient.Do(req); return err }, "30s", "1s").Should(Succeed())
@@ -919,7 +1050,7 @@ func (c Case) Run() bool {
 					}, "30s", "1s").Should(Equal(http.StatusOK))
 
 					By("Interacting with the released service over a static ingress (HTTPS)")
-					req, err = http.NewRequest("GET", fmt.Sprintf("https://%s:443/rwx/test-file", kindIP), nil)
+					req, err = http.NewRequest("GET", fmt.Sprintf("https://%s:443/rwx/test-file", state.KindIP), nil)
 					Expect(err).ToNot(HaveOccurred())
 					req.Host = c.SmokeTest.Ingress.StaticHostname
 					Eventually(func() error { _, err := insecureClient.Do(req); return err }, "30s", "1s").Should(Succeed())
@@ -955,8 +1086,7 @@ func (c Case) Run() bool {
 							"Makefile",
 							"integration-test",
 						).
-						WithStreams(gingk8s.GinkgoOutErr).
-						WithWorkingDir(repoRoot),
+						WithStreams(gingk8s.GinkgoOutErr),
 					)
 
 					By("Checking the files were received")
@@ -995,15 +1125,22 @@ func CleanupPVCDirs() {
 	ExpectRun(cleaner)
 }
 
-var _ = Case{
+var k3sCase = Case{
 	Name: "k3s",
+	GetChart: func() helm.ChartFlags {
+		return helm.ChartFlags{
+			ChartName:     "kink",
+			RepositoryURL: fmt.Sprintf("http://%s:%s", state.KindIP, state.ChartmuseumPort),
+			Version:       state.ChartVersion,
+		}
+	},
 	SmokeTest: CaseSmokeTest{
 		Set: gingk8s.Object{
 			"persistence.rwo.storageClassName": "standard", // default
 			"persistence.rwx.storageClassName": "shared-local-path",
 			"deployment.ingress.hostname":      "smoke-test.k3s.ingress.local",
 			"deployment.ingress.className":     "nginx",
-			"statefulset.nodePortHostname":     func() string { return kindIP },
+			"statefulset.nodePortHostname":     func() string { return state.KindIP },
 		},
 		Ingress: CaseIngressService{
 			StaticHostname: "smoke-test.k3s.ingress.outer",
@@ -1016,21 +1153,26 @@ var _ = Case{
 		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
 		return []gingk8s.ResourceDependency{rolloutID}
 	},
-	Controlplane: CaseControlplane{
-		External: true,
-	},
 	FileGatewayEnabled: true,
-}.Run()
+	LoadFlags:          []string{"--parallel-loads=3"},
+}
 
-var _ = Case{
+var k3sHACase = Case{
 	Name: "k3s-ha",
+	GetChart: func() helm.ChartFlags {
+		return helm.ChartFlags{
+			ChartName: fmt.Sprintf("oci://%s:%s/charts/kink", state.KindIP, state.DockerRegistryPort),
+			PlainHTTP: true,
+			Version:   state.ChartVersion,
+		}
+	},
 	SmokeTest: CaseSmokeTest{
 		Set: gingk8s.Object{
 			"persistence.rwo.storageClassName": "standard", // default
 			"persistence.rwx.storageClassName": "shared-local-path",
 			"deployment.ingress.hostname":      "smoke-test.k3s-ha.ingress.local",
 			"deployment.ingress.className":     "nginx",
-			"statefulset.nodePortHostname":     func() string { return kindIP },
+			"statefulset.nodePortHostname":     func() string { return state.KindIP },
 		},
 		Ingress: CaseIngressService{
 			Namespace:      "default",
@@ -1049,6 +1191,7 @@ var _ = Case{
 		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
 		return []gingk8s.ResourceDependency{rolloutID}
 	},
+	LoadFlags: []string{"--parallel-loads=3"},
 
 	Controlplane: CaseControlplane{
 		External: true,
@@ -1056,10 +1199,15 @@ var _ = Case{
 	},
 
 	FileGatewayEnabled: true,
-}.Run()
+}
 
-var _ = Case{
-	Name:      "k3s-single",
+var k3sSingleCase = Case{
+	Name: "k3s-single",
+	GetChart: func() helm.ChartFlags {
+		return helm.ChartFlags{
+			ChartName: filepath.Join(repoRoot, "helm/kink"),
+		}
+	},
 	LoadFlags: []string{"--only-load-workers=false"},
 	SmokeTest: CaseSmokeTest{
 		Set: gingk8s.Object{
@@ -1067,7 +1215,7 @@ var _ = Case{
 			"persistence.rwx.storageClassName": "shared-local-path",
 			"deployment.ingress.hostname":      "smoke-test.k3s-single.ingress.local",
 			"deployment.ingress.className":     "nginx",
-			"statefulset.nodePortHostname":     func() string { return kindIP },
+			"statefulset.nodePortHostname":     func() string { return state.KindIP },
 		},
 		Ingress: CaseIngressService{
 			Namespace:      "default",
@@ -1087,10 +1235,15 @@ var _ = Case{
 	},
 
 	FileGatewayEnabled: true,
-}.Run()
+}
 
-var _ = Case{
+var rke2Case = Case{
 	Name: "rke2",
+	GetChart: func() helm.ChartFlags {
+		return helm.ChartFlags{
+			ChartName: filepath.Join(repoRoot, fmt.Sprintf("bin/kink-%s.tgz", state.ChartVersion)),
+		}
+	},
 	SmokeTest: CaseSmokeTest{
 		Set: gingk8s.Object{
 			"persistence.rwo.storageClassName":              "standard", // default
@@ -1098,7 +1251,7 @@ var _ = Case{
 			"deployment.ingress.hostname":                   "smoke-test.rke2.ingress.local",
 			"deployment.ingress.className":                  "nginx",
 			"deployment.ingress.tls[0].hosts[0].secretName": "",
-			"statefulset.nodePortHostname":                  func() string { return kindIP },
+			"statefulset.nodePortHostname":                  func() string { return state.KindIP },
 		},
 		Ingress: CaseIngressService{
 			Namespace:     "default",
@@ -1116,7 +1269,18 @@ var _ = Case{
 		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
 		return []gingk8s.ResourceDependency{rolloutID}
 	},
-}.Run()
+	Controlplane: CaseControlplane{
+		External: true,
+	},
+	LoadFlags: []string{"--parallel-loads=3"},
+}
+
+var cases = []Case{
+	k3sCase,
+	k3sSingleCase,
+	k3sHACase,
+	rke2Case,
+}
 
 var (
 	randPortLock = make(chan struct{}, 1)
@@ -1148,4 +1312,10 @@ func WithRandomPorts[T any](count int, f func([]int) T) T {
 	}
 
 	return f(ports)
+}
+
+func init() {
+	for _, c := range cases {
+		c.Run()
+	}
 }
