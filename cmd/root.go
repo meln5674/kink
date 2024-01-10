@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
@@ -64,6 +65,18 @@ func (kinkArgsT) Defaults() kinkArgsT {
 	if clusterName == "" {
 		clusterName = cfg.DefaultClusterName
 	}
+	kubeconfig := os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
+	if kubeconfig == "" {
+		// Error deliberately ignored
+		home, _ := os.UserHomeDir()
+		if home != "" {
+			kubeconfig = filepath.Join(home, clientcmd.RecommendedHomeDir, clientcmd.RecommendedFileName)
+		}
+		_, err := os.Stat(kubeconfig)
+		if err != nil {
+			kubeconfig = ""
+		}
+	}
 	return kinkArgsT{
 		ConfigPath: os.Getenv(ClusterConfigEnv),
 
@@ -81,7 +94,7 @@ func (kinkArgsT) Defaults() kinkArgsT {
 		Set:         map[string]string{},
 		SetString:   map[string]string{},
 
-		Kubeconfig: os.Getenv(clientcmd.RecommendedConfigPathEnvVar),
+		Kubeconfig: kubeconfig,
 	}
 }
 
