@@ -6,25 +6,4 @@ metadata:
     {{ include "kink.labels" . | nindent 4 }}
 data:
   registries.yaml.tpl: |
-    mirrors:
-      {{- .Values.registries.mirrors | toYaml | nindent 6 }}
-    configs:
-      {{- range $k, $v := .Values.registries.configs }}
-        '{{ $k }}':
-          {{- with $v.auth }}
-          auth:
-            {{- range $field := list "username" "password" "auth" }}
-            {{ if index $v.auth $field }}
-            {{ $field }}: /etc/kink/registries/{{ $k }}/{{ $field }}
-            {{- end }}
-            {{- end }}
-          {{- end }}
-          {{- with $v.tls }}
-          tls:
-            {{- range $field := list "ca_file" "cert_file" "key_file" }}
-            {{- if index $v.tls $field }}
-            {{ $field }}: /etc/kink/registries/{{ $k }}/{{ $field }}
-            {{- end }}
-            {{- end }}
-          {{- end }}
-      {{- end }}
+    {{- .Values.registries | toYaml | nindent 4 }}

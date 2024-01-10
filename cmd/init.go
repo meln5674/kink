@@ -313,6 +313,7 @@ func replaceRegistryAuth(name string, auth *registries.AuthConfig, path string, 
 	if !hasString(args.AuthMounted, name) {
 		return nil
 	}
+	klog.V(1).InfoS("Replacing auth", "name", name, "auth", auth, "path", path, "mounted", args.AuthMounted)
 	authDir := filepath.Join(path, "auth")
 	fields := []*string{&auth.Username, &auth.Password, &auth.Auth, &auth.IdentityToken}
 	for _, field := range fields {
@@ -320,6 +321,7 @@ func replaceRegistryAuth(name string, auth *registries.AuthConfig, path string, 
 		if err != nil {
 			return err
 		}
+		klog.V(1).InfoS("Replacing auth", "name", name, "auth", auth, "path", path, "mounted", args.AuthMounted)
 	}
 
 	return nil
@@ -340,6 +342,7 @@ func replaceRegistryTLS(name string, tls *registries.TLSConfig, path string, arg
 	if !hasString(args.TLSMounted, name) {
 		return nil
 	}
+	klog.V(1).InfoS("Replacing tls", "name", name, "tls", tls, "path", path, "mounted", args.TLSMounted)
 	tlsDir := filepath.Join(path, "tls")
 	fields := []*string{&tls.CAFile, &tls.CertFile, &tls.KeyFile}
 	for _, field := range fields {
@@ -347,6 +350,7 @@ func replaceRegistryTLS(name string, tls *registries.TLSConfig, path string, arg
 		if err != nil {
 			return err
 		}
+		klog.V(1).InfoS("Replacing tls", "name", name, "tls", tls, "path", path, "mounted", args.TLSMounted)
 	}
 
 	return nil
@@ -385,6 +389,7 @@ func generateRegistriesConfig(ctx context.Context, args *initRegistriesArgsT) er
 			return err
 		}
 	}
+	klog.InfoS("Generated registries.yaml", "registries", config)
 	configBytes, err := yamlwriter.Marshal(&config)
 	if err != nil {
 		return err
