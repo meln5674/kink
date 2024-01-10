@@ -1,16 +1,21 @@
-apiVersion: batch/v1
-kind: Job
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: {{ include "kink-test.fullname" . }}
   labels:
     {{- include "kink-test.labels" . | nindent 4 }}
-  annotations:
-    helm.sh/hook: post-install,post-upgrade
 spec:
-  backoffLimit: 0
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "kink-test.selectorLabels" . | nindent 6 }}
   template:
+    metadata:
+      labels:
+        {{- include "kink-test.selectorLabels" . | nindent 8 }}
     spec:
-      restartPolicy: Never
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -24,33 +29,26 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          workingDir: {{ .Values.sourceMount.path }}
-          command: [bash, -xecu]
-          args:
-          - |-
-            export SHELL
-            {{- if contains "rke2" .Values.testCase }}
-            ln -s '/var/lib/rancher/rke2/server/bin/kubectl' /usr/local/bin/kubectl
-            {{- else }}
-            cat > /usr/local/bin/kubectl <<'EOF'
-            #!/bin/bash -e
-            exec k3s kubectl "$@"
-            EOF
-            chmod +x /usr/local/bin/kubectl
-            {{- end }}
-            TEST_CASE='{{ .Values.testCase }}' \
-            IMAGE_REPO='{{ .Values.image.repository }}' \
-            IMAGE_TAG='{{ .Values.image.tag }}' \
-            KINK_IT_NO_KINK_CREATE='{{ .Values.noKinkCreate }}' \
-            KINK_IT_NO_LOAD='{{ .Values.noLoad }}' \
-            KINK_IT_NO_CLEANUP='{{ .Values.noCleanup }}' \
-            integration-test/run-in-cluster-case.sh
-          
+          workingDir: {{ .Values.sourceMount.containerPath }}/{{ .Values.sourceMount.subdir }}
+          command: [tail, -f, /dev/null]
+          env:
+          - name: SHELL
+            value: /bin/bash
+          - name: GOCOVERDIR
+            value: {{ .Values.gocoverage.dir }}
+          - name: KINK_IT_IN_CLUSTER
+            value: '1'
+          - name: KINK_IT_IS_CI
+            value: '{{ if .Values.testOpts.ci }}1{{ end }}'
+          - name: KINK_IT_DEV_MODE
+            value: '{{ if .Values.testOpts.devMode }}1{{ end }}'
+          - name: KINK_IT_STATE
+            value: '{{ .Values.testOpts.state | toJson }}'
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
           - name: src
-            mountPath: {{ .Values.sourceMount.path }}
+            mountPath: {{ .Values.sourceMount.containerPath }}
           - name: docker
             mountPath: /var/run/docker.sock
       {{- with .Values.nodeSelector }}
@@ -68,7 +66,7 @@ spec:
       volumes:
       - name: src
         hostPath:
-          path: {{ .Values.sourceMount.path }}
+          path: {{ .Values.sourceMount.hostPath }}
       - name: docker
         hostPath:
           path: /var/run/docker.sock

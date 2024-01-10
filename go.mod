@@ -6,7 +6,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.6.0
 	github.com/go-logr/logr v1.3.0
 	github.com/k3s-io/helm-controller v0.15.5
-	github.com/meln5674/gingk8s v0.0.0-20240107180451-3e67464bd785
+	github.com/meln5674/gingk8s v0.0.0-20240110011511-099ccf178bbd
 	github.com/meln5674/gosh v0.0.0-20231117202424-9c5cde7505d5
 	github.com/meln5674/k8s-smoke-test v0.3.0
 	github.com/meln5674/rflag v0.0.0-20231217180901-e4edacde2851

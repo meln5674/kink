@@ -4,14 +4,30 @@ metadata:
   name: {{ include "kink-test.fullname" . }}
 rules:
 - apiGroups: ['']
-  resources: [services,persistentvolumeclaims,serviceaccounts,secrets,configmaps]
+  resources:
+  - services
+  - persistentvolumeclaims
+  - serviceaccounts
+  - secrets
+  - configmaps
+  verbs: ['*']
+- apiGroups: [rbac.authorization.k8s.io]
+  resources:
+  - roles
+  - rolebindings
   verbs: ['*']
 - apiGroups: [apps]
-  resources: [statefulsets]
+  resources: [statefulsets, deployments]
+  verbs: ['*']
+- apiGroups: [batch]
+  resources: [jobs]
   verbs: ['*']
 - apiGroups: [networking.k8s.io]
   resources: [ingresses]
   verbs: ['*']
+- apiGroups: ['apps']
+  resources: [replicasets]
+  verbs: [get,list,watch]
 - apiGroups: ['']
   resources: [pods]
   verbs: [get,list,watch]

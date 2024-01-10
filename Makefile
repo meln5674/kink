@@ -40,9 +40,12 @@ test: $(SETUP_ENVTEST) $(GINKGO)
 
 GOCOVERDIR=$(shell pwd)/integration-test/gocov
 
-E2E_FLAGS ?= -vv -p --trace --timeout=2h
+E2E_FLAGS ?= -vv -p --trace --timeout=2h --flake-attempts=3
+# E2E_FLAGS ?= -vv --trace --timeout=2h
+E2E_IN_CLUSTER_FLAGS ?= -vv --trace --timeout=2h
 .PHONY: e2e
 e2e: bin/kink.cover $(GINKGO) $(KIND) $(KUBECTL) $(HELM) $(SETUP_ENVTEST)
+ifndef KINK_IT_IN_CLUSTER
 	./hack/inotify-check.sh
 	rm -rf $(GOCOVERDIR)
 	mkdir -p $(GOCOVERDIR)
@@ -52,6 +55,9 @@ e2e: bin/kink.cover $(GINKGO) $(KIND) $(KUBECTL) $(HELM) $(SETUP_ENVTEST)
 	go tool covdata percent -i=$(GOCOVERDIR)
 	go tool covdata textfmt -i=$(GOCOVERDIR) -o cover.e2e.out
 	go tool cover -html=cover.e2e.out -o cover.e2e.html
+else
+	KINK_IT_REPO_ROOT=$(shell pwd) LOCALBIN=$(LOCALBIN) GOCOVERDIR=$(GOCOVERDIR) $(GINKGO) run $(E2E_IN_CLUSTER_FLAGS) ./e2e/
+endif
 
 .PHONY: test
 clean-tests:

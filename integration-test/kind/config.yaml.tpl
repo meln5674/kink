@@ -10,7 +10,9 @@ nodes:
     containerPath: /var/shared-local-path-provisioner
   # These are needed in order to run in-cluster tests 
   - hostPath: {{ .Pwd }}/..
-    containerPath: /src/kink
+    containerPath: /src/kink/kink
+  - hostPath: {{ .Pwd }}/../..
+    containerPath: /src/kink/
   - hostPath: /var/run/docker.sock
     containerPath: /var/run/docker.sock
   # Not necessary, but this should be faster than using the overlayfs
@@ -30,4 +32,5 @@ nodes:
     containerPath: /var/lib/containerd/io.containerd.snapshotter.v1.native/snapshots
   - hostPath: {{ .Pwd }}/../integration-test/volumes/var/lib/containerd/io.containerd.runtime.v2.task
     containerPath: /var/lib/containerd/io.containerd.runtime.v2.task
-
+  - hostPath: {{ .Pwd }}/../integration-test/volumes/var/lib/registry
+    containerPath: /var/lib/registry

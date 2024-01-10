@@ -151,8 +151,8 @@ github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/matttproud/golang_protobuf_extensions v1.0.4 h1:mmDVorXM7PCGKw94cs5zkfA9PSy5pEvNWRP0ET0TIVo=
 github.com/matttproud/golang_protobuf_extensions v1.0.4/go.mod h1:BSXmuO+STAnVfrANrmjBb36TMTDstsz7MSK+HVaYKv4=
-github.com/meln5674/gingk8s v0.0.0-20240107180451-3e67464bd785 h1:NdK6QvKAfXAk/Qi7jkoE7Tx/z5ZOvHLHgkkHNCl0Gp8=
-github.com/meln5674/gingk8s v0.0.0-20240107180451-3e67464bd785/go.mod h1:EnyjON313XCWtfYyFF4puZVK0W/0rVJhIEQPkcrN3XU=
+github.com/meln5674/gingk8s v0.0.0-20240110011511-099ccf178bbd h1:k8Ag0in8elNZ4L+2p+g/xXziq3Wc+bAR0mMBnJQhibY=
+github.com/meln5674/gingk8s v0.0.0-20240110011511-099ccf178bbd/go.mod h1:EnyjON313XCWtfYyFF4puZVK0W/0rVJhIEQPkcrN3XU=
 github.com/meln5674/godag v0.3.0-rc5 h1:npdBsJRms0EOCJG4Xm4MDa+dm2XDyGQEXcRRJc+GCws=
 github.com/meln5674/godag v0.3.0-rc5/go.mod h1:I1NjQA+RbjGnOzfuU7STLQak+XVwY6e/mTONB8bGKB0=
 github.com/meln5674/gosh v0.0.0-20231117202424-9c5cde7505d5 h1:JMBi0Iudc4Oi3pcS116hh4LojLZrSot/R/coYQDJMo0=

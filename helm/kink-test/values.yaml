@@ -1,9 +1,3 @@
-# Default values for kink-test.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
-replicaCount: 1
-
 image:
   repository: github.com/meln5674/kink
   pullPolicy: IfNotPresent
@@ -37,26 +31,6 @@ securityContext:
   # runAsNonRoot: true
   # runAsUser: 1000
 
-service:
-  type: ClusterIP
-  port: 80
-
-ingress:
-  enabled: false
-  className: ""
-  annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
-  hosts:
-    - host: chart-example.local
-      paths:
-        - path: /
-          pathType: ImplementationSpecific
-  tls: []
-  #  - secretName: chart-example-tls
-  #    hosts:
-  #      - chart-example.local
-
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
@@ -69,24 +43,25 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
-autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 100
-  targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
-
 nodeSelector: {}
 
 tolerations: []
 
 affinity: {}
 
-testCase: k3s # k3s, k3s-ha, rke2
-
-noKinkCreate: ''
-noLoad: ''
-noCleanup: ''
+gocoverage:
+  dir: TODO
 
 sourceMount:
-  path: /src/kink
+  hostPath: /src/kink
+  containerPath: /src/kink
+  subdir: kink
+
+testOpts:
+  ci: false
+  devMode: false
+  state: {}
+
+kink:
+  image:
+    tag: latest

@@ -10,7 +10,6 @@ helm:
 release:
   upgradeFlags:
   - --timeout=1h
-  - --create-namespace
   set:
     image.pullPolicy: Never
     controlplane.securityContext.privileged: "true"

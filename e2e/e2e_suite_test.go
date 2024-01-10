@@ -45,6 +45,10 @@ var (
 
 	repoRoot = os.Getenv("KINK_IT_REPO_ROOT")
 
+	gocoverdir = os.Getenv("GOCOVERDIR")
+
+	runningInCluster = os.Getenv("KINK_IT_IN_CLUSTER") != ""
+
 	localbin     = os.Getenv("LOCALBIN")
 	localKubectl = gingk8s.KubectlCommand{
 		Command: []string{filepath.Join(localbin, "kubectl")},
@@ -57,17 +61,21 @@ var (
 	}
 	localDocker = gingk8s.DockerCommand{}
 
+	devMode = os.Getenv("KINK_IT_DEV_MODE") != ""
+	isCI    = os.Getenv("IS_CI") != ""
+
 	gk8s     gingk8s.Gingk8s
 	gk8sOpts = gingk8s.SuiteOpts{
 		// KLogFlags:      []string{"-v=6"},
 		Kubectl:        &localKubectl,
 		Helm:           &localHelm,
 		Manifests:      &localKubectl,
-		NoSuiteCleanup: os.Getenv("KINK_IT_DEV_MODE") != "",
-		NoSpecCleanup:  os.Getenv("KINK_IT_DEV_MODE") != "",
-		NoCacheImages:  os.Getenv("IS_CI") != "",
-		NoPull:         os.Getenv("IS_CI") != "",
-		NoLoadPulled:   os.Getenv("IS_CI") != "",
+		NoSuiteCleanup: devMode,
+		NoSpecCleanup:  devMode,
+		NoCacheImages:  isCI,
+		NoPull:         isCI,
+		NoLoadPulled:   isCI,
+		NoDeps:         false,
 	}
 
 	kindCluster = gingk8s.KindCluster{
@@ -77,7 +85,10 @@ var (
 		ConfigFileTemplatePath: filepath.Join(repoRoot, "integration-test/kind/config.yaml.tpl"),
 		ConfigFilePath:         filepath.Join(repoRoot, "integration-test/kind/config.yaml"),
 	}
-	kindClusterID gingk8s.ClusterID
+	inClusterCluster = gingk8s.DummyCluster{}
+	kindClusterID    gingk8s.ClusterID
+
+	hostCluster gingk8s.Cluster
 
 	twuniRepo = gingk8s.HelmRepo{
 		Name: "twuni",
@@ -94,22 +105,36 @@ var (
 		Name: "docker.io/library/registry:2.7.1",
 	}
 	proxyRegistry = gingk8s.HelmRelease{
-		Name:  "proxy-registry",
-		Chart: &dockerRegistryChart,
+		Name:      "proxy-registry",
+		Namespace: "default",
+		Chart:     &dockerRegistryChart,
 		Set: gingk8s.Object{
 			"persistence.enabled":        true,
 			"service.type":               "NodePort",
 			"configData.proxy.remoteurl": "https://registry-1.docker.io",
 			"fullnameOverride":           "proxy-registry",
 		},
+		Wait: []gingk8s.WaitFor{{
+			Resource: "deploy/proxy-registry",
+			For: gingk8s.StringObject{
+				"condition": "Available=true",
+			},
+		}},
 	}
 	dockerRegistry = gingk8s.HelmRelease{
-		Name:  "docker-registry",
-		Chart: &dockerRegistryChart,
+		Name:      "docker-registry",
+		Namespace: "default",
+		Chart:     &dockerRegistryChart,
 		Set: gingk8s.Object{
 			"persistence.enabled": true,
 			"service.type":        "NodePort",
 		},
+		Wait: []gingk8s.WaitFor{{
+			Resource: "deploy/docker-registry",
+			For: gingk8s.StringObject{
+				"condition": "Available=true",
+			},
+		}},
 	}
 
 	chartmuseumRepo = gingk8s.HelmRepo{
@@ -127,13 +152,20 @@ var (
 		Name: "ghcr.io/helm/chartmuseum:v0.13.1",
 	}
 	chartmuseum = gingk8s.HelmRelease{
-		Name:  "chartmuseum",
-		Chart: &chartmuseumChart,
+		Name:      "chartmuseum",
+		Namespace: "default",
+		Chart:     &chartmuseumChart,
 		Set: gingk8s.Object{
 			"persistence.enabled":  true,
 			"service.type":         "NodePort",
 			"env.open.DISABLE_API": false,
 		},
+		Wait: []gingk8s.WaitFor{{
+			Resource: "deploy/chartmuseum",
+			For: gingk8s.StringObject{
+				"condition": "Available=true",
+			},
+		}},
 	}
 
 	ingressNginxRepo = gingk8s.HelmRepo{
@@ -151,8 +183,9 @@ var (
 		Name: "registry.k8s.io/ingress-nginx/controller:v1.7.0",
 	}
 	ingressNginx = gingk8s.HelmRelease{
-		Name:  "ingress-nginx",
-		Chart: &ingressNginxChart,
+		Name:      "ingress-nginx",
+		Namespace: "default",
+		Chart:     &ingressNginxChart,
 		Set: gingk8s.Object{
 			"controller.kind":                             "DaemonSet",
 			"controller.service.type":                     "ClusterIP",
@@ -162,12 +195,14 @@ var (
 	}
 	ingressNginxInner = gingk8s.HelmRelease{
 		Name:       "ingress-nginx",
+		Namespace:  "default",
 		Chart:      &ingressNginxChart,
 		SkipDelete: true,
 	}
 	ingressNginxInnerDS = gingk8s.HelmRelease{
-		Name:  "ingress-nginx",
-		Chart: &ingressNginxChart,
+		Name:      "ingress-nginx",
+		Namespace: "default",
+		Chart:     &ingressNginxChart,
 		Set: gingk8s.Object{
 			"controller.kind":             "DaemonSet",
 			"controller.hostPort.enabled": "true",
@@ -188,13 +223,13 @@ var (
 	*/
 	sharedLocalPathProvisionerMount = "/opt/shared-local-path-provisioner"
 	sharedLocalPathProvisioner      = gingk8s.HelmRelease{
+		Name:      "local-path-provisioner",
+		Namespace: "kube-system",
 		Chart: &gingk8s.HelmChart{
 			LocalChartInfo: gingk8s.LocalChartInfo{
 				Path: filepath.Join(repoRoot, "charts/local-path-provisioner-0.0.24-dev.tgz"),
 			},
 		},
-		Name:      "local-path-provisioner",
-		Namespace: "kube-system",
 		Set: gingk8s.Object{
 			"storageClass.name":    "shared-local-path",
 			"nodePathMap":          "null",
@@ -245,6 +280,40 @@ var (
 		Format: gingk8s.OCIImageFormat,
 	}
 
+	buildEnvImage = gingk8s.CustomImage{
+		Registry:   "local.host",
+		Repository: "meln5674/kink/build-env",
+		ContextDir: repoRoot,
+		Dockerfile: filepath.Join(repoRoot, "build-env.Dockerfile"),
+	}
+	buildEnvChart = gingk8s.HelmChart{
+		LocalChartInfo: gingk8s.LocalChartInfo{
+			Path: filepath.Join(repoRoot, "helm/kink-test"),
+		},
+	}
+	buildEnv = gingk8s.HelmRelease{
+		Name:         "kink-build-env",
+		Chart:        &buildEnvChart,
+		UpgradeFlags: []string{"--create-namespace"},
+		Set: gingk8s.Object{
+			"gocoverage.dir": gocoverdir,
+
+			"testOpts.ci":      isCI,
+			"testOpts.devMode": devMode,
+
+			"sourceMount.containerPath": filepath.Dir(repoRoot),
+
+			"image.repository": buildEnvImage.WithTag(""),
+			"image.tag":        gingk8s.DefaultExtraCustomImageTags[0],
+			"kink.image.tag":   gingk8s.DefaultExtraCustomImageTags[0],
+
+			"fullnameOverride": "kink-build-env",
+		},
+		SetJSON: gingk8s.NestedObject{
+			"testOpts.state": &state,
+		},
+	}
+
 	watchPods      = gingk8s.KubectlWatcher{Kind: "pod", Flags: []string{"-A"}}
 	watchServices  = gingk8s.KubectlWatcher{Kind: "service", Flags: []string{"-A"}}
 	watchEndpoints = gingk8s.KubectlWatcher{Kind: "endpoints", Flags: []string{"-A"}}
@@ -262,17 +331,12 @@ type suiteState struct {
 	ChartmuseumPort    string
 	DockerRegistryPort string
 	Gingk8s            []byte
+	KinkImageTag       string
 }
 
 var _ = SynchronizedBeforeSuite(beforeSuiteGlobal, beforeSuiteLocal)
 
-func beforeSuiteGlobal(ctx context.Context) []byte {
-	gosh.GlobalLog = GinkgoLogr
-	gosh.CommandLogLevel = 0
-
-	gk8s = gingk8s.ForSuite(GinkgoT())
-	gk8s.Options(gk8sOpts)
-
+func kindClusterSetup(ctx context.Context) {
 	if !gk8sOpts.NoSuiteCleanup {
 		DeferCleanup(CleanupPVCDirs)
 	}
@@ -289,13 +353,14 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 	chartTarballPath := filepath.Join(repoRoot, fmt.Sprintf("bin/kink-%s.tgz", state.ChartVersion))
 
 	kinkImageID := gk8s.CustomImage(&kinkImage)
+	buildEnvImageID := gk8s.CustomImage(&buildEnvImage)
 	ingressNginxImageID := gk8s.ThirdPartyImage(&ingressNginxImage)
 	//gk8s.CustomImage(&localPathProvisionerImage)
 	gk8s.ThirdPartyImage(&k8sSmokeTestDeploymentImage)
 	gk8s.ThirdPartyImage(&k8sSmokeTestStatefulSetImage)
 	dockerRegistryImageID := gk8s.ThirdPartyImage(&dockerRegistryImage)
 	gk8s.ImageArchive(&k8sSmokeTestJobImageArchive)
-	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID, dockerRegistryImageID)
+	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID, dockerRegistryImageID, buildEnvImageID)
 	getKindIPID := gk8s.ClusterAction(kindClusterID, "Get KinD cluster IP", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
 		err := localDocker.
 			Docker(
@@ -334,20 +399,23 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 			}
 
 			By("Uploading chart to chartmuseum")
-			tarball, err := os.Open(chartTarballPath)
-			if err != nil {
-				return err
-			}
-			defer tarball.Close()
-			resp, err := http.Post(fmt.Sprintf("http://%s:%s/api/charts", state.KindIP, state.ChartmuseumPort), "application/octet-stream", tarball)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-			_, err = io.Copy(GinkgoWriter, resp.Body)
-			if resp.StatusCode != http.StatusCreated {
-				return fmt.Errorf("Status code %d", resp.StatusCode)
-			}
+			Eventually(func() error {
+				tarball, err := os.Open(chartTarballPath)
+				if err != nil {
+					return err
+				}
+				defer tarball.Close()
+				resp, err := http.Post(fmt.Sprintf("http://%s:%s/api/charts", state.KindIP, state.ChartmuseumPort), "application/octet-stream", tarball)
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				_, err = io.Copy(GinkgoWriter, resp.Body)
+				if resp.StatusCode != http.StatusCreated {
+					return fmt.Errorf("Status code %d", resp.StatusCode)
+				}
+				return nil
+			}, "30s", "500ms").Should(Succeed())
 			return nil
 		}),
 		chartmuseumID,
@@ -368,16 +436,16 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 			if err != nil {
 				return err
 			}
-			err = localHelm.
-				Helm(
-					ctx, c.GetConnection(),
-					"push", chartTarballPath, fmt.Sprintf("oci://%s:%s/charts", state.KindIP, state.DockerRegistryPort),
-					"--plain-http",
-				).
-				Run()
-			if err != nil {
-				return err
-			}
+			Eventually(
+				localHelm.
+					Helm(
+						ctx, c.GetConnection(),
+						"push", chartTarballPath, fmt.Sprintf("oci://%s:%s/charts", state.KindIP, state.DockerRegistryPort),
+						"--plain-http",
+					).
+					Run(),
+				"15s", "1s",
+			).Should(Succeed())
 			return nil
 		}),
 		dockerRegistryID,
@@ -389,6 +457,32 @@ func beforeSuiteGlobal(ctx context.Context) []byte {
 	gk8s.ClusterAction(kindClusterID, "Watch Services", &watchServices)
 	gk8s.ClusterAction(kindClusterID, "Watch Ingresses", &watchIngresses)
 	gk8s.ClusterAction(kindClusterID, "Watch PVCs", &watchPVCs)
+	state.KinkImageTag = gingk8s.DefaultExtraCustomImageTags[0]
+	hostCluster = &kindCluster
+}
+
+func inClusterSetup() {
+	Expect(json.Unmarshal([]byte(os.Getenv("KINK_IT_STATE")), &state)).To(Succeed())
+
+	kindClusterID = gk8s.Cluster(&inClusterCluster)
+	hostCluster = &inClusterCluster
+	gingk8s.DefaultExtraCustomImageTags[0] = state.KinkImageTag
+}
+
+func beforeSuiteGlobal(ctx context.Context) []byte {
+	gosh.GlobalLog = GinkgoLogr
+	gosh.CommandLogLevel = 0
+
+	gk8s = gingk8s.ForSuite(GinkgoT())
+	gk8s.Options(gk8sOpts)
+
+	if runningInCluster {
+		By("Connecting to cluster from within")
+		inClusterSetup()
+	} else {
+		By("Building host cluster")
+		kindClusterSetup(ctx)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	DeferCleanup(cancel)
@@ -428,6 +522,13 @@ func beforeSuiteLocal(ctx context.Context, in []byte) {
 			return http.ErrUseLastResponse
 		}
 	*/
+
+	if runningInCluster {
+		gingk8s.DefaultExtraCustomImageTags[0] = state.KinkImageTag
+		hostCluster = &inClusterCluster
+	} else {
+		hostCluster = &kindCluster
+	}
 
 }
 
@@ -481,6 +582,8 @@ type KinkFlags struct {
 	FileGatewayPortForwardPort  int
 
 	LogLevel int
+
+	InCluster bool
 }
 
 func (k *KinkFlags) Kink(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, args ...string) *gosh.Cmd {
@@ -508,7 +611,11 @@ func (k *KinkFlags) Kink(ctx context.Context, ku *kubectl.KubeFlags, chart *helm
 	}
 	cmd = append(cmd, release.ValuesFlags()...)
 	cmd = append(cmd, args...)
-	command := gosh.Command(cmd...).WithContext(ctx).UsingProcessGroup().WithWorkingDir(repoRoot)
+	command := gosh.Command(cmd...).
+		WithContext(ctx).
+		UsingProcessGroup().
+		WithWorkingDir(repoRoot).
+		WithStreams(GinkgoOutErr)
 	if k.Env != nil {
 		command = command.WithParentEnvAnd(k.Env)
 	}
@@ -526,6 +633,14 @@ func (k *KinkFlags) portForwardFlags() []string {
 	return args
 }
 
+func (k *KinkFlags) exportKubeconfigFlags() []string {
+	args := k.portForwardFlags()
+	if k.InCluster {
+		args = append(args, "--in-cluster")
+	}
+	return args
+}
+
 func (k *KinkFlags) CreateCluster(ctx context.Context, ku *kubectl.KubeFlags, targetKubeconfigPath string, controlplaneIngressURL string, chart *helm.ChartFlags, release *helm.ReleaseFlags) *gosh.Cmd {
 	args := []string{"create", "cluster"}
 	if targetKubeconfigPath != "" {
@@ -534,7 +649,7 @@ func (k *KinkFlags) CreateCluster(ctx context.Context, ku *kubectl.KubeFlags, ta
 	if controlplaneIngressURL != "" {
 		args = append(args, "--controlplane-ingress-url", controlplaneIngressURL)
 	}
-	args = append(args, k.portForwardFlags()...)
+	args = append(args, k.exportKubeconfigFlags()...)
 	args = append(args, release.UpgradeFlags...)
 	return k.Kink(ctx, ku, chart, release, args...)
 }
@@ -545,29 +660,36 @@ func (k *KinkFlags) DeleteCluster(ctx context.Context, ku *kubectl.KubeFlags, ch
 
 func (k *KinkFlags) Shell(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, script string) *gosh.Cmd {
 	args := []string{"sh"}
-	args = append(args, k.portForwardFlags()...)
+	args = append(args, k.exportKubeconfigFlags()...)
 	args = append(args, "--", script)
 	return k.Kink(ctx, ku, chart, release, args...)
 }
 
-func (k *KinkFlags) Load(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, typ string, flags []string, flag string, items ...string) *gosh.Cmd {
+func (k *KinkFlags) Load(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, typ string, flags []string, flag string, items ...string) gosh.Commander {
 	args := []string{"load", typ}
 	args = append(args, flags...)
 	for _, item := range items {
 		args = append(args, "--"+flag, item)
 	}
-	return k.Kink(ctx, ku, chart, release, args...)
+	// ctr is unreliable, so we retry up to 5 times
+	return gosh.Or(
+		k.Kink(ctx, ku, chart, release, args...),
+		k.Kink(ctx, ku, chart, release, args...),
+		k.Kink(ctx, ku, chart, release, args...),
+		k.Kink(ctx, ku, chart, release, args...),
+		k.Kink(ctx, ku, chart, release, args...),
+	)
 }
 
-func (k *KinkFlags) LoadDockerImage(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, images ...string) *gosh.Cmd {
+func (k *KinkFlags) LoadDockerImage(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, images ...string) gosh.Commander {
 	return k.Load(ctx, ku, chart, release, "docker-image", flags, "image", images...)
 }
 
-func (k *KinkFlags) LoadDockerArchive(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) *gosh.Cmd {
+func (k *KinkFlags) LoadDockerArchive(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) gosh.Commander {
 	return k.Load(ctx, ku, chart, release, "docker-archive", flags, "archive", archives...)
 }
 
-func (k *KinkFlags) LoadOCIArchive(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) *gosh.Cmd {
+func (k *KinkFlags) LoadOCIArchive(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, archives ...string) gosh.Commander {
 	return k.Load(ctx, ku, chart, release, "oci-archive", flags, "archive", archives...)
 }
 
@@ -579,7 +701,7 @@ func (k *KinkFlags) PortForward(ctx context.Context, ku *kubectl.KubeFlags, char
 
 func (k *KinkFlags) FileGatewaySend(ctx context.Context, ku *kubectl.KubeFlags, chart *helm.ChartFlags, release *helm.ReleaseFlags, flags []string, paths ...string) *gosh.Cmd {
 	args := []string{"file-gateway", "send"}
-	args = append(args, k.portForwardFlags()...)
+	args = append(args, k.exportKubeconfigFlags()...)
 	args = append(args, flags...)
 	args = append(args, paths...)
 	return k.Kink(ctx, ku, chart, release, args...)
@@ -648,15 +770,15 @@ func (k *KinkCluster) GetName() string {
 }
 
 func (k *KinkCluster) LoadImages(ctx context.Context, from gingk8s.Images, format gingk8s.ImageFormat, images []string, noCache bool) gosh.Commander {
-	return k.KinkFlags.LoadDockerImage(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadImageFlags, images...).WithStreams(GinkgoOutErr)
+	return k.KinkFlags.LoadDockerImage(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadImageFlags, images...)
 }
 
 func (k *KinkCluster) LoadImageArchives(ctx context.Context, format gingk8s.ImageFormat, archives []string) gosh.Commander {
 	switch format {
 	case gingk8s.DockerImageFormat:
-		return k.KinkFlags.LoadDockerArchive(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadArchiveFlags, archives...).WithStreams(GinkgoOutErr)
+		return k.KinkFlags.LoadDockerArchive(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadArchiveFlags, archives...)
 	case gingk8s.OCIImageFormat:
-		return k.KinkFlags.LoadOCIArchive(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadArchiveFlags, archives...).WithStreams(GinkgoOutErr)
+		return k.KinkFlags.LoadOCIArchive(ctx, &k.KubeFlags, &k.ChartFlags, &k.ReleaseFlags, k.LoadArchiveFlags, archives...)
 	default:
 		panic("Bad image format")
 	}
@@ -699,6 +821,7 @@ type Case struct {
 	Controlplane       CaseControlplane
 	FileGatewayEnabled bool
 	GetChart           func() helm.ChartFlags
+	InCluster          bool
 
 	ExtraClusterSetup func(gingk8s.Gingk8s, gingk8s.ClusterID, []gingk8s.ResourceDependency) []gingk8s.ResourceDependency
 
@@ -710,11 +833,55 @@ type Void struct{}
 
 var void = struct{}{}
 
-func (c Case) Run() bool {
+func (c Case) Create() bool {
 	if c.Disabled {
 		return false
 	}
+	if runningInCluster && !c.InCluster {
+		return false
+	}
+	if runningInCluster && os.Getenv("KINK_IT_IN_CLUSTER_CASE") != c.Name {
+		return false
+	}
 	f := func() {
+		if !runningInCluster && c.InCluster {
+			It("should work when run within the cluster", func() {
+				gk8s = gk8s.ForSpec()
+
+				namespacedBuildEnv := buildEnv
+				namespacedBuildEnv.Namespace = c.Name
+				buildEnvID := gk8s.Release(kindClusterID, &namespacedBuildEnv)
+				rolloutID := gk8s.ClusterAction(
+					kindClusterID,
+					fmt.Sprintf("Rollout %s build-env", c.Name),
+					gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, _ gingk8s.Cluster) error {
+						Expect(gk8s.Kubectl(
+							ctx, hostCluster,
+							"-n", c.Name,
+							"rollout", "status", "deploy/kink-build-env",
+						).Run()).To(Succeed())
+
+						return nil
+					}),
+					buildEnvID,
+				)
+
+				gk8s.ClusterAction(
+					kindClusterID, "Execute case in cluster",
+					gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, _ gingk8s.Cluster) error {
+						return gk8s.KubectlExec(ctx, hostCluster, "deploy/kink-build-env", "make", []string{"e2e", fmt.Sprintf("KINK_IT_IN_CLUSTER_CASE=%s", c.Name)}, "-n", c.Name).Run()
+					}),
+					rolloutID,
+				)
+
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+				gk8s.Setup(ctx)
+			})
+
+			return
+		}
+
 		var kinkCluster KinkCluster
 		var kinkOpts KinkFlags
 		var release helm.ReleaseFlags
@@ -725,12 +892,11 @@ func (c Case) Run() bool {
 			gingk8s.WithRandomPorts[Void](3, func(randPorts []int) Void {
 				gk8s = gk8s.ForSpec()
 
-				gocoverdir := os.Getenv("GOCOVERDIR")
 				Expect(gocoverdir).ToNot(BeEmpty(), "GOCOVERDIR was not set")
 
 				gocoverdirArgs := []string{
 					"--set", "extraVolumes[0].name=src",
-					"--set", "extraVolumes[0].hostPath.path=/src/kink/",
+					"--set", "extraVolumes[0].hostPath.path=/src/kink/kink",
 					"--set", "extraVolumes[0].hostPath.type=Directory",
 
 					"--set", "extraVolumeMounts[0].name=src",
@@ -740,18 +906,21 @@ func (c Case) Run() bool {
 					"--set", "extraEnv[0].value=" + gocoverdir,
 				}
 
-				kindKubeOpts = kubectl.KubeFlags{
-					Kubeconfig: filepath.Join(repoRoot, "integration-test/kind/kubeconfig"), // TODO: Get this from sync state
+				kindKubeOpts = kubectl.KubeFlags{}
+				if !c.InCluster {
+					kindKubeOpts.Kubeconfig = filepath.Join(repoRoot, "integration-test/kind/kubeconfig") // TODO: Get this from sync state
 				}
 
 				kinkOpts = KinkFlags{
 					//Command:     []string{"go", "run", "../main.go"},
-					Command:     append([]string{filepath.Join(localbin, "kink.cover")}, gocoverdirArgs...),
+					Command:     append([]string{filepath.Join(repoRoot, "bin/kink.cover")}, gocoverdirArgs...),
 					ConfigPath:  filepath.Join(repoRoot, "integration-test/kink/", c.Name, "config.yaml"),
 					ClusterName: c.Name,
 
 					ControlplanePortForwardPort: randPorts[0],
 					FileGatewayPortForwardPort:  randPorts[1],
+
+					InCluster: c.InCluster,
 
 					LogLevel: 10,
 				}
@@ -765,7 +934,7 @@ func (c Case) Run() bool {
 				release = helm.ReleaseFlags{
 					Set: map[string]string{
 						"image.repository":          kinkImage.WithTag(""),
-						"image.tag":                 gingk8s.DefaultExtraCustomImageTags[0], // gingk8s.DefaultCustomImageTag,
+						"image.tag":                 state.KinkImageTag,
 						"controlplane.nodeportHost": state.KindIP,
 					},
 				}
@@ -823,20 +992,51 @@ func (c Case) Run() bool {
 				DeferCleanup(cancel)
 				gk8s.Setup(ctx)
 
+				if !c.Controlplane.External && !c.InCluster {
+					By("Waiting for port-forward to stop")
+				}
+
 				return void
 			})
 		})
 		It("should work", func() {
+
 			gingk8s.WithRandomPorts[Void](1, func(randPorts []int) Void {
 
 				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
 				gk8s = gk8s.ForSpec()
 
 				fileGatewayHost := state.KindIP
 
+				ExpectRun(gosh.And(
+					gk8s.Kubectl(
+						ctx, hostCluster,
+						"-n", c.Name,
+						"rollout", "restart", fmt.Sprintf("sts/kink-%s-controlplane", c.Name),
+					),
+					gk8s.Kubectl(
+						ctx, hostCluster,
+						"-n", c.Name,
+						"rollout", "restart", fmt.Sprintf("sts/kink-%s-worker", c.Name),
+					),
+					gk8s.Kubectl(
+						ctx, hostCluster,
+						"-n", c.Name,
+						"rollout", "status", fmt.Sprintf("sts/kink-%s-controlplane", c.Name),
+					),
+					gk8s.Kubectl(
+						ctx, hostCluster,
+						"-n", c.Name,
+						"rollout", "status", fmt.Sprintf("sts/kink-%s-worker", c.Name),
+					),
+				))
+
 				deps := []gingk8s.ResourceDependency{}
-				if !c.Controlplane.External {
+				if !c.Controlplane.External && !c.InCluster {
 					fileGatewayHost = "localhost"
+
+					By("Port-Forwarding to controlplane")
 					portForwarder := kinkOpts.PortForward(
 						ctx,
 						&kindKubeOpts,
@@ -847,40 +1047,12 @@ func (c Case) Run() bool {
 					DeferCleanup(func() { portForwarder.Kill() })
 				}
 
+				By("Waiting for controlplane to be available")
 				Eventually(func() error {
 					return gk8s.Kubectl(ctx, &kinkCluster, "version").Run()
 				}, "30s", "1s").Should(Succeed())
 
-				controlplaneRolloutID := gk8s.ClusterAction(
-					kinkClusterID,
-					"Rollout cluster controlplane",
-					gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, _ gingk8s.Cluster) error {
-						return gosh.And(
-							gk8s.Kubectl(
-								ctx, &kindCluster,
-								"-n", c.Name,
-								"rollout", "restart", fmt.Sprintf("sts/kink-%s-controlplane", c.Name),
-							),
-							gk8s.Kubectl(
-								ctx, &kindCluster,
-								"-n", c.Name,
-								"rollout", "restart", fmt.Sprintf("sts/kink-%s-worker", c.Name),
-							),
-							gk8s.Kubectl(
-								ctx, &kindCluster,
-								"-n", c.Name,
-								"rollout", "status", fmt.Sprintf("sts/kink-%s-controlplane", c.Name),
-							),
-							gk8s.Kubectl(
-								ctx, &kindCluster,
-								"-n", c.Name,
-								"rollout", "status", fmt.Sprintf("sts/kink-%s-worker", c.Name),
-							),
-						).Run()
-					}),
-				)
-				deps = append(deps, controlplaneRolloutID)
-
+				By("Executing test")
 				gk8s.ClusterAction(kinkClusterID, "Watch Pods", &watchPods, deps...)
 				gk8s.ClusterAction(kinkClusterID, "Watch Endpoints", &watchEndpoints, deps...)
 				gk8s.ClusterAction(kinkClusterID, "Watch Services", &watchServices, deps...)
@@ -900,6 +1072,7 @@ func (c Case) Run() bool {
 
 					k8sSmokeTest := gingk8s.HelmRelease{
 						Name:         "k8s-smoke-test",
+						Namespace:    "default",
 						Chart:        &k8sSmokeTestChart,
 						UpgradeFlags: []string{"--debug", "--timeout=15m"},
 						Set:          c.SmokeTest.Set,
@@ -912,7 +1085,7 @@ func (c Case) Run() bool {
 						"Patch smoke-test to include hostport",
 						gingk8s.ClusterCommander(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) gosh.Commander {
 							return gosh.And(
-								g.Kubectl(ctx, c, "patch", "deploy/k8s-smoke-test", "-p", `{
+								g.Kubectl(ctx, c, "patch", "deploy/k8s-smoke-test", "-n", "default", "-p", `{
 				            "spec": {
 				                    "template": {
 				                            "spec": {
@@ -936,8 +1109,8 @@ func (c Case) Run() bool {
 				            }
 				    }`),
 								gosh.FanOut(
-									g.Kubectl(ctx, c, "rollout", "status", "deploy/k8s-smoke-test"),
-									g.Kubectl(ctx, c, "rollout", "status", "sts/k8s-smoke-test"),
+									g.Kubectl(ctx, c, "rollout", "status", "-n", "default", "deploy/k8s-smoke-test"),
+									g.Kubectl(ctx, c, "rollout", "status", "-n", "default", "sts/k8s-smoke-test"),
 								),
 							)
 						}),
@@ -946,13 +1119,12 @@ func (c Case) Run() bool {
 					deps = []gingk8s.ResourceDependency{k8sSmokeTestPatchID}
 				}
 
-				DeferCleanup(cancel)
 				gk8s.Setup(ctx)
 
 				var mergedValues k8ssmoketest.MergedValues
 				ExpectRun(
 					localHelm.
-						Helm(ctx, kinkCluster.GetConnection(), "get", "values", "--all", "-o", "json", "k8s-smoke-test").
+						Helm(ctx, kinkCluster.GetConnection(), "get", "values", "-n", "default", "--all", "-o", "json", "k8s-smoke-test").
 						WithStreams(gosh.FuncOut(gosh.SaveJSON(&mergedValues))),
 				)
 
@@ -963,9 +1135,6 @@ func (c Case) Run() bool {
 					&clientcmd.ConfigOverrides{},
 				)
 
-				kinkKubeconfigNamespace, _, err := kinkKubeConfigLoader.Namespace()
-				Expect(err).ToNot(HaveOccurred())
-
 				kinkKubeconfig, err := kinkKubeConfigLoader.ClientConfig()
 				Expect(err).ToNot(HaveOccurred())
 
@@ -973,7 +1142,7 @@ func (c Case) Run() bool {
 					// TODO: Extract certs from inner and outter ingress and add to this client instead
 					HTTP:                 &insecureClient,
 					K8sConfig:            kinkKubeconfig,
-					ReleaseNamespace:     kinkKubeconfigNamespace,
+					ReleaseNamespace:     "default",
 					ReleaseName:          "k8s-smoke-test",
 					MergedValues:         &mergedValues,
 					PortForwardLocalPort: randPorts[0],
@@ -991,7 +1160,7 @@ func (c Case) Run() bool {
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Testing Port-Forwarding...")
-				Expect(k8ssmoketest.TestPortForward(ctx, cfg, deploymentPod)).To(Succeed())
+				Eventually(k8ssmoketest.TestPortForward(ctx, cfg, deploymentPod), "30s", "500ms").Should(Succeed())
 
 				By("Testing Ingress...")
 				Eventually(func() error { return k8ssmoketest.TestIngress(ctx, cfg) }, "30s", "500ms").Should(Succeed())
@@ -1009,7 +1178,7 @@ func (c Case) Run() bool {
 				var outerNodePort int32
 				Eventually(func() int32 {
 
-					ExpectRun(gk8s.Kubectl(ctx, &kindCluster, "get", "svc", "-o", "json", fmt.Sprintf("kink-%s-lb", c.Name), "-n", c.Name).WithStreams(gosh.FuncOut(gosh.SaveJSON(&loadBalancerService))))
+					ExpectRun(gk8s.Kubectl(ctx, hostCluster, "get", "svc", "-n", "default", "-o", "json", fmt.Sprintf("kink-%s-lb", c.Name), "-n", c.Name).WithStreams(gosh.FuncOut(gosh.SaveJSON(&loadBalancerService))))
 					innerNodePort := statefulSetService.Spec.Ports[0].NodePort
 					for _, port := range loadBalancerService.Spec.Ports {
 						if port.TargetPort.IntVal == innerNodePort {
@@ -1092,13 +1261,13 @@ func (c Case) Run() bool {
 					By("Checking the files were received")
 					ExpectRun(gosh.FanOut(
 						gk8s.KubectlExec(
-							ctx, &kindCluster,
+							ctx, hostCluster,
 							fmt.Sprintf("kink-%s-controlplane-0", c.Name),
 							"cat", []string{filepath.Join(sharedLocalPathProvisionerMount, "Makefile")},
 							"-n", c.Name,
 						),
 						gk8s.KubectlExec(
-							ctx, &kindCluster,
+							ctx, hostCluster,
 							fmt.Sprintf("kink-%s-controlplane-0", c.Name),
 							"ls", []string{filepath.Join(sharedLocalPathProvisionerMount, "Makefile")},
 							"-n", c.Name,
@@ -1112,7 +1281,7 @@ func (c Case) Run() bool {
 		})
 
 	}
-	if c.Focus {
+	if c.Focus && !runningInCluster {
 		return FDescribe(c.Name, Label(c.Name), f)
 	} else {
 		return Describe(c.Name, Label(c.Name), f)
@@ -1149,7 +1318,7 @@ var k3sCase = Case{
 	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
 		ingressNginxID := gk8s.Release(c, &ingressNginxInner, deps...)
 		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
-			return gk8s.Kubectl(ctx, c, "rollout", "status", "deploy/ingress-nginx-controller").Run()
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "deploy/ingress-nginx-controller", "-n", "default").Run()
 		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
 		return []gingk8s.ResourceDependency{rolloutID}
 	},
@@ -1187,7 +1356,7 @@ var k3sHACase = Case{
 	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
 		ingressNginxID := gk8s.Release(c, &ingressNginxInner, deps...)
 		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
-			return gk8s.Kubectl(ctx, c, "rollout", "status", "deploy/ingress-nginx-controller").Run()
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "deploy/ingress-nginx-controller", "-n", "default").Run()
 		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
 		return []gingk8s.ResourceDependency{rolloutID}
 	},
@@ -1202,7 +1371,8 @@ var k3sHACase = Case{
 }
 
 var k3sSingleCase = Case{
-	Name: "k3s-single",
+	Name:      "k3s-single",
+	InCluster: true,
 	GetChart: func() helm.ChartFlags {
 		return helm.ChartFlags{
 			ChartName: filepath.Join(repoRoot, "helm/kink"),
@@ -1229,7 +1399,7 @@ var k3sSingleCase = Case{
 	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
 		ingressNginxID := gk8s.Release(c, &ingressNginxInnerDS, deps...)
 		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
-			return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller").Run()
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller", "-n", "default").Run()
 		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
 		return []gingk8s.ResourceDependency{rolloutID}
 	},
@@ -1265,7 +1435,7 @@ var rke2Case = Case{
 	ExtraClusterSetup: func(gk8s gingk8s.Gingk8s, c gingk8s.ClusterID, deps []gingk8s.ResourceDependency) []gingk8s.ResourceDependency {
 		ingressNginxID := gk8s.Release(c, &ingressNginxInnerDS, deps...)
 		rolloutID := gk8s.ClusterAction(c, "Wait for ingress nginx", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
-			return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller").Run()
+			return gk8s.Kubectl(ctx, c, "rollout", "status", "ds/ingress-nginx-controller", "-n", "default").Run()
 		}), append([]gingk8s.ResourceDependency{ingressNginxID}, deps...)...)
 		return []gingk8s.ResourceDependency{rolloutID}
 	},
@@ -1316,6 +1486,6 @@ func WithRandomPorts[T any](count int, f func([]int) T) T {
 
 func init() {
 	for _, c := range cases {
-		c.Run()
+		c.Create()
 	}
 }
