@@ -88,20 +88,20 @@ var fileGatewaySendCmd = &cobra.Command{
 }
 
 type fileGatewaySendArgsT struct {
-	PortForwardArgs portForwardArgsT `rflag:""`
-	Dest            string           `rflag:"name=send-dest,usage=directory within the file gateway to expand into (equivalent to tar's -C)"`
-	Gzip            bool             `rflag:"name=send-gzip,usage=If filepaths are provided,, compress them when sending. If reading from standard input,, expect it to be compressed. (equivalent to tar's -x)"`
-	WipeDirs        bool             `rflag:"name=send-wipe-dirs,usage=Instruct the file gateway to wipe and re-create any directories that appear in the tar archive"`
-	Exclude         []string         `rflag:"name=send-exclude,usage=Do not send paths which match this glob"`
-	IngressURL      string           `rflag:"name=file-gateway-ingress-url,usage=If ingress is used for the file gateway,, instead use this URL,, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used."`
-	PortForward     bool             `rflag:"usage=Set up a localhost port forward for the file gateway during execution if no ingress or nodeport was set. Set to false if using a background 'kink port-forward' command. Ignored if using an ingress or nodeport for the file gateway."`
+	ExportKubeconfig exportKubeconfigCommonArgsT `rflag:""`
+	Dest             string                      `rflag:"name=send-dest,usage=directory within the file gateway to expand into (equivalent to tar's -C)"`
+	Gzip             bool                        `rflag:"name=send-gzip,usage=If filepaths are provided,, compress them when sending. If reading from standard input,, expect it to be compressed. (equivalent to tar's -x)"`
+	WipeDirs         bool                        `rflag:"name=send-wipe-dirs,usage=Instruct the file gateway to wipe and re-create any directories that appear in the tar archive"`
+	Exclude          []string                    `rflag:"name=send-exclude,usage=Do not send paths which match this glob"`
+	IngressURL       string                      `rflag:"name=file-gateway-ingress-url,usage=If ingress is used for the file gateway,, instead use this URL,, and set the tls-server-name to the expected ingress hostname. Ignored if controlplane ingress is not used."`
+	PortForward      bool                        `rflag:"usage=Set up a localhost port forward for the file gateway during execution if no ingress or nodeport was set. Set to false if using a background 'kink port-forward' command. Ignored if using an ingress or nodeport for the file gateway."`
 }
 
 func (fileGatewaySendArgsT) Defaults() fileGatewaySendArgsT {
 	return fileGatewaySendArgsT{
-		PortForwardArgs: portForwardArgsT{}.Defaults(),
-		Dest:            "/",
-		PortForward:     true,
+		ExportKubeconfig: exportKubeconfigCommonArgsT{}.Defaults(),
+		Dest:             "/",
+		PortForward:      true,
 	}
 }
 
@@ -130,8 +130,9 @@ func sendToFileGateway(ctx context.Context, args *fileGatewaySendArgsT, cfg *res
 			externalHostname:  cfg.ReleaseConfig.FileGatewayHostname,
 			nodeportName:      "file-gateway",
 			inClusterPort:     int(cfg.ReleaseConfig.FileGatewayContainerPort),
-			portForwardPort:   args.PortForwardArgs.FileGatewayPort,
+			portForwardPort:   args.ExportKubeconfig.PortForward.FileGatewayPort,
 			serverURLOverride: args.IngressURL,
+			inCluster:         args.ExportKubeconfig.InCluster,
 		},
 	)
 	if err != nil {
@@ -147,7 +148,7 @@ func sendToFileGateway(ctx context.Context, args *fileGatewaySendArgsT, cfg *res
 
 	if tmpKubeconfig.CurrentContext == "default" {
 		if args.PortForward {
-			stopPortForward, err := startPortForward(ctx, true, &args.PortForwardArgs, cfg)
+			stopPortForward, err := startPortForward(ctx, true, &args.ExportKubeconfig.PortForward, cfg)
 			if err != nil {
 				return err
 			}

@@ -102,6 +102,7 @@ func exportKubeconfig(ctx context.Context, w io.Writer, args *exportKubeconfigCo
 			portForwardPort:   args.PortForward.ControlplanePort,
 			serverURLOverride: args.ControlplaneIngressURL,
 			nodeportName:      "api",
+			inCluster:         args.InCluster,
 		},
 	)
 }

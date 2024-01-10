@@ -130,7 +130,7 @@ func cmdRetryLoop(ctx context.Context, lock chan struct{}, logMsg string, cmdPtr
 					if err != nil {
 						klog.Warningf("%s failed, retrying...: %s", logMsg, err)
 					} else {
-						klog.Warningf("%s stopped without error, retrying...: %s", logMsg, err)
+						klog.Warningf("%s stopped without error, retrying...: %v", logMsg, err)
 					}
 				}
 				*cmdPtr, err = mkCmd()
