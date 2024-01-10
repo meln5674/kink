@@ -61,8 +61,12 @@ release:
     loadBalancer.ingress.static[0].nodePort.port: http
 
 
-    'registries.mirrors.docker\.io.endpoint[0]': http://proxy-registry.default:5000
-    'registries.mirrors.registry-1\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
-    'registries.mirrors.index\.docker\.io.endpoint[0]': http://proxy-registry.default:5000
+    'registries.mirrors.docker\.io.endpoint[0]': https://secure-proxy-registry.default:5000
+    'registries.mirrors.registry-1\.docker\.io.endpoint[0]': https://secure-proxy-registry.default:5000
+    'registries.mirrors.index\.docker\.io.endpoint[0]': https://secure-proxy-registry.default:5000
+    'registries.configs.secure-proxy-registry\.default:5000.tls.volume.secret.secretName': secure-proxy-registry-cert
+    'registries.configs.secure-proxy-registry\.default:5000.tls.ca_file': ca.crt
+    'registries.configs.secure-proxy-registry\.default:5000.auth.username': totally-secure-username
+    'registries.configs.secure-proxy-registry\.default:5000.auth.password': totally-secure-password
   setString:
     extraArgs[1]: '1'

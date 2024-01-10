@@ -90,6 +90,75 @@ var (
 
 	hostCluster gingk8s.Cluster
 
+	certManagerImages = []*gingk8s.ThirdPartyImage{
+		&gingk8s.ThirdPartyImage{Name: "quay.io/jetstack/cert-manager-cainjector:v1.11.1"},
+		&gingk8s.ThirdPartyImage{Name: "quay.io/jetstack/cert-manager-controller:v1.11.1"},
+		&gingk8s.ThirdPartyImage{Name: "quay.io/jetstack/cert-manager-webhook:v1.11.1"},
+	}
+	certManager = gingk8s.HelmRelease{
+		Name: "cert-manager",
+		Chart: &gingk8s.HelmChart{
+			RemoteChartInfo: gingk8s.RemoteChartInfo{
+				Repo: &gingk8s.HelmRepo{
+					Name: "jetstack",
+					URL:  "https://charts.jetstack.io",
+				},
+				Name:    "cert-manager",
+				Version: "v1.11.1",
+			},
+		},
+		Set: gingk8s.Object{
+			"installCRDs":        true,
+			"prometheus.enabled": false,
+		},
+		Wait: []gingk8s.WaitFor{
+			{
+				Resource: "deploy/cert-manager",
+				For:      map[string]string{"condition": "Available"},
+			},
+			{
+				Resource: "deploy/cert-manager-webhook",
+				For:      map[string]string{"condition": "Available"},
+			},
+			{
+				Resource: "deploy/cert-manager-cainjector",
+				For:      map[string]string{"condition": "Available"},
+			},
+		},
+	}
+	secureProxyRegistryCerts = gingk8s.KubernetesManifests{
+		Name: "Secure Proxy Registry Certificates",
+		Resources: []string{`
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}
+`,
+			`
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: secure-proxy-registry-cert
+spec:
+  commonName: 'secure-proxy-registry.default.svc.cluster.local'
+  secretName: secure-proxy-registry-cert
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-issuer
+    kind: Issuer
+    group: cert-manager.io
+  dnsNames:
+  - secure-proxy-registry.default.svc.cluster.local
+  - secure-proxy-registry.default
+  - secure-proxy-registry
+`,
+		},
+	}
+
 	twuniRepo = gingk8s.HelmRepo{
 		Name: "twuni",
 		URL:  "https://helm.twun.io",
@@ -116,6 +185,25 @@ var (
 		},
 		Wait: []gingk8s.WaitFor{{
 			Resource: "deploy/proxy-registry",
+			For: gingk8s.StringObject{
+				"condition": "Available=true",
+			},
+		}},
+	}
+	secureProxyRegistry = gingk8s.HelmRelease{
+		Name:      "secure-proxy-registry",
+		Namespace: "default",
+		Chart:     &dockerRegistryChart,
+		Set: gingk8s.Object{
+			"persistence.enabled":        true,
+			"service.type":               "NodePort",
+			"configData.proxy.remoteurl": "http://proxy-registry:5000",
+			"fullnameOverride":           "secure-proxy-registry",
+			"tlsSecretName":              "secure-proxy-registry-cert",
+			"secrets.htpasswd":           "totally-secure-username:$2y$05$U4s6hE0MMiJ268PfzZBS3udps3xiPGQIirCCRy24P6UkUbo0XGxBe",
+		},
+		Wait: []gingk8s.WaitFor{{
+			Resource: "deploy/secure-proxy-registry",
 			For: gingk8s.StringObject{
 				"condition": "Available=true",
 			},
@@ -360,7 +448,8 @@ func kindClusterSetup(ctx context.Context) {
 	gk8s.ThirdPartyImage(&k8sSmokeTestStatefulSetImage)
 	dockerRegistryImageID := gk8s.ThirdPartyImage(&dockerRegistryImage)
 	gk8s.ImageArchive(&k8sSmokeTestJobImageArchive)
-	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID, dockerRegistryImageID, buildEnvImageID)
+	certManagerImageIDs := gk8s.ThirdPartyImages(certManagerImages...)
+	kindClusterID = gk8s.Cluster(&kindCluster, kinkImageID, ingressNginxImageID, dockerRegistryImageID, buildEnvImageID, certManagerImageIDs)
 	getKindIPID := gk8s.ClusterAction(kindClusterID, "Get KinD cluster IP", gingk8s.ClusterAction(func(g gingk8s.Gingk8s, ctx context.Context, c gingk8s.Cluster) error {
 		err := localDocker.
 			Docker(
@@ -382,6 +471,9 @@ func kindClusterSetup(ctx context.Context) {
 	}), ingressNginxID)
 
 	gk8s.Release(kindClusterID, &proxyRegistry, dockerRegistryImageID)
+	certManagerID := gk8s.Release(kindClusterID, &certManager, certManagerImageIDs)
+	secureProxyRegistryCertsID := gk8s.Manifests(kindClusterID, &secureProxyRegistryCerts, certManagerID)
+	gk8s.Release(kindClusterID, &secureProxyRegistry, dockerRegistryImageID, secureProxyRegistryCertsID)
 
 	chartmuseumID := gk8s.Release(kindClusterID, &chartmuseum)
 	gk8s.ClusterAction(
@@ -866,12 +958,43 @@ func (c Case) Create() bool {
 					buildEnvID,
 				)
 
+				copySecretID := gk8s.ClusterAction(
+					kindClusterID, "Copy secure proxy registry cert",
+					gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, _ gingk8s.Cluster) error {
+						Eventually(func() error {
+							gk8s.
+								Kubectl(ctx, hostCluster, "delete", "secret", "secure-proxy-registry-cert", "-n", c.Name).
+								Run()
+							var secret map[string]interface{}
+							err := gk8s.
+								Kubectl(ctx, hostCluster, "get", "secret", "-o", "json", "secure-proxy-registry-cert").
+								WithStreams(gosh.FuncOut(gosh.SaveJSON(&secret))).
+								Run()
+							if err != nil {
+								return err
+							}
+							secret["metadata"].(map[string]interface{})["namespace"] = c.Name
+							secret["type"] = "Opaque"
+							delete(secret["data"].(map[string]interface{}), "tls.key")
+							err = gk8s.
+								Kubectl(ctx, hostCluster, "create", "-f", "-").
+								WithStreams(gosh.FuncIn(gosh.JSONIn(&secret))).
+								Run()
+							if err != nil {
+								return err
+							}
+							return nil
+						}, "30s", "5s").Should(Succeed())
+						return nil
+					}),
+				)
+
 				gk8s.ClusterAction(
 					kindClusterID, "Execute case in cluster",
 					gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, _ gingk8s.Cluster) error {
 						return gk8s.KubectlExec(ctx, hostCluster, "deploy/kink-build-env", "make", []string{"e2e", fmt.Sprintf("KINK_IT_IN_CLUSTER_CASE=%s", c.Name)}, "-n", c.Name).Run()
 					}),
-					rolloutID,
+					rolloutID, copySecretID,
 				)
 
 				ctx, cancel := context.WithCancel(context.Background())
@@ -952,6 +1075,39 @@ func (c Case) Create() bool {
 					TempDir:                filepath.Join(repoRoot, "integration-test/kink/", c.Name),
 					LoadImageFlags:         c.LoadFlags,
 					LoadArchiveFlags:       c.LoadFlags,
+				}
+
+				if !runningInCluster {
+					gk8s.ClusterAction(
+						kindClusterID, "Copy secure proxy registry cert",
+						gingk8s.ClusterAction(func(gk8s gingk8s.Gingk8s, ctx context.Context, _ gingk8s.Cluster) error {
+							Eventually(func() error {
+								gk8s.
+									Kubectl(ctx, hostCluster, "delete", "secret", "secure-proxy-registry-cert", "-n", c.Name).
+									Run()
+								var secret map[string]interface{}
+								err := gk8s.
+									Kubectl(ctx, hostCluster, "get", "secret", "-o", "json", "secure-proxy-registry-cert").
+									WithStreams(gosh.FuncOut(gosh.SaveJSON(&secret))).
+									Run()
+								if err != nil {
+									return err
+								}
+								secret["metadata"].(map[string]interface{})["namespace"] = c.Name
+								secret["type"] = "Opaque"
+								delete(secret["data"].(map[string]interface{}), "tls.key")
+								err = gk8s.
+									Kubectl(ctx, hostCluster, "create", "-f", "-").
+									WithStreams(gosh.FuncIn(gosh.JSONIn(&secret))).
+									Run()
+								if err != nil {
+									return err
+								}
+								return nil
+							}, "30s", "5s").Should(Succeed())
+							return nil
+						}),
+					)
 				}
 
 				k8sSmokeTestImagesID := gk8s.ThirdPartyImage(&k8sSmokeTestDeploymentImage)
