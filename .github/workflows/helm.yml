@@ -6,7 +6,9 @@ on:
     tags: [ 'v*.*.*' ]
 
 env:
+  REGISTRY: ghcr.io
   CHART_DIR: helm/kink
+  HELM_REPO: "oci://ghcr.io/${{ github.repository }}/charts"
 
 jobs:
   release:
@@ -14,6 +16,7 @@ jobs:
     # see: https://docs.github.com/en/actions/security-guides/automatic-token-authentication#modifying-the-permissions-for-the-github_token
     permissions:
       contents: write
+      packages: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,37 +34,28 @@ jobs:
         uses: olegtarasov/get-tag@v2.1
 
       - name: Install Helm
-        uses: azure/setup-helm@v1
-        with:
-          version: v3.8.1
-      
-      - name: Install YQ
-        uses: chrisdickinson/setup-yq@latest
-        with:
-          yq-version: v4.27.2
+        run:
+          make helm
         
-      - name: Set Chart Version
-        run: |
-          if [ -n "${{ steps.tagName.outputs.tag }}" ]; then
-            yq -i '.version = "${{ steps.tagName.outputs.tag }}"' '${{ env.CHART_DIR }}/Chart.yaml'
-            yq -i '.appVersion = "${{ steps.tagName.outputs.tag }}"' '${{ env.CHART_DIR }}/Chart.yaml'
-          else
-            yq -i '.version = .version + "-'"${GITHUB_SHA}"'"' '${{ env.CHART_DIR }}/Chart.yaml'
-            yq -i '.appVersion = "sha-'"${GITHUB_SHA}"'"' '${{ env.CHART_DIR }}/Chart.yaml'
-
-
-          fi
-
       - name: Lint
         run: |
-          helm lint '${{ env.CHART_DIR }}'
-          helm template '${{ env.CHART_DIR }}'
-          # Need to do this otherwise it will end up publishing the test chart
-          rm -rf helm/kink-test
+          bin/helm lint "${CHART_DIR}"
+          bin/helm template "${CHART_DIR}"
 
-      - name: Run chart-releaser
-        uses: helm/chart-releaser-action@v1.4.0
+      # Release charts
+      - name: Push Charts
         env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-        with:
-          charts_dir: helm
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
+        run: |
+          set -x
+          bin/helm registry login "${REGISTRY}" -u "${GITHUB_ACTOR}" -p "${GITHUB_TOKEN}"
+
+          GIT_TAG="${{ steps.tagName.outputs.tag }}"
+          if [ -n "${GIT_TAG}" ]; then
+            ARGS=( CHART_VERISON="${GIT_TAG}" CHART_APP_VERSION="${GIT_TAG}" )
+          else
+            ARGS=( CHART_APP_VERSION="sha-${GITHUB_SHA}" CHART_GIT_SHA="${GITHUB_SHA}" )
+          fi
+          make chart "${ARGS[@]}"
+          bin/helm push bin/charts/kink-*.tgz "${HELM_REPO}"
+
