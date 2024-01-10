@@ -54,7 +54,7 @@ jobs:
         id: lint
         run: |
           export GOPATH=~/go
-          ./build-env.sh make lint
+          ./build-env.sh make lint SHELL=/bin/bash
 
       - name: Run Integration Tests
         id: run-integration-tests
