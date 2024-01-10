@@ -18,7 +18,7 @@ tools:
     go:
       module: helm.sh/helm/v3
       subpath: cmd/helm
-      version:  v3.11.2
+      version:  v3.13.3
   setup-envtest: 
     go:
       module: sigs.k8s.io/controller-runtime/tools/setup-envtest

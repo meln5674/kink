@@ -17,9 +17,9 @@ ginkgo: $(GINKGO)
 
 HELM ?= $(LOCALBIN)/helm
 $(HELM):
-	GOBIN=$(LOCALBIN)/.make-env/go/helm.sh/helm/v3.cmd/helm/v3.11.2 go install helm.sh/helm/v3/cmd/helm@v3.11.2
+	GOBIN=$(LOCALBIN)/.make-env/go/helm.sh/helm/v3.cmd/helm/v3.13.3 go install helm.sh/helm/v3/cmd/helm@v3.13.3
 	rm -f $(HELM)
-	ln -s $(LOCALBIN)/.make-env/go/helm.sh/helm/v3.cmd/helm/v3.11.2/helm $(HELM)
+	ln -s $(LOCALBIN)/.make-env/go/helm.sh/helm/v3.cmd/helm/v3.13.3/helm $(HELM)
 .PHONY: helm
 helm: $(HELM)
 
@@ -36,6 +36,7 @@ kind: $(KIND)
 KUBECTL ?= $(LOCALBIN)/kubectl
 KUBECTL_MIRROR ?= https://dl.k8s.io/release
 KUBECTL_VERSION ?= v1.25.11
+
 KUBECTL_URL ?= $(KUBECTL_MIRROR)/$(KUBECTL_VERSION)/bin/$(shell go env GOOS)/$(shell go env GOARCH)/kubectl
 $(KUBECTL): 
 	mkdir -p $(LOCALBIN)/.make-env/http
