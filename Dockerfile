@@ -4,10 +4,12 @@ ARG GO_IMAGE=docker.io/library/golang:1.21
 
 ARG DOCKER_IMAGE=docker.io/library/docker:20
 
+ARG KINK_BINARY=bin/kink
+
 FROM ${DOCKER_IMAGE} AS docker
 
 FROM ${GO_IMAGE} AS go
-FROM go as kink
+FROM go as build-kink
 
 WORKDIR /src/kink/
 
@@ -17,7 +19,9 @@ COPY cmd /src/kink/cmd
 COPY pkg /src/kink/pkg
 COPY main.go /src/kink/main.go
 
-RUN make bin/kink
+ARG KINK_BINARY
+
+RUN make "${KINK_BINARY}"
 
 FROM go as local-path-provisioner
 
@@ -90,8 +94,10 @@ COPY --from=etcd /usr/local/bin/etcdctl /usr/local/bin/etcdctl
 COPY charts/local-path-provisioner-*.tgz /etc/kink/extra-charts/
 RUN mkdir -p /etc/kink/extra-manifests/k3s/user /etc/kink/extra-manifests/rke2/user
 
-COPY --from=go /src/kink/bin/kink /usr/local/bin/kink
-COPY --from=go /src/local-path-provisioner/local-path-provisioner /usr/local/bin/local-path-provisioner
+COPY --from=local-path-provisioner /src/local-path-provisioner/local-path-provisioner /usr/local/bin/local-path-provisioner
+
+ARG KINK_BINARY
+COPY --from=build-kink /src/kink/${KINK_BINARY} /usr/local/bin/kink
 
 VOLUME /var/lib/rancher/
 VOLUME /var/lib/kubelet
