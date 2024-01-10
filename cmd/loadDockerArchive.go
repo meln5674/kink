@@ -4,6 +4,7 @@ Copyright © 2022 NAME HERE <EMAIL ADDRESS>
 package cmd
 
 import (
+	"bytes"
 	"context"
 
 	"github.com/pkg/errors"
@@ -52,14 +53,19 @@ func loadArchives(ctx context.Context, args *loadArgsT, cfg *resolvedConfigT, ar
 	if err != nil {
 		return err
 	}
-	imports := make([]gosh.Commander, 0, len(pods.Items)*len(archives))
+	var ctrImport bytes.Buffer
+	err = ctrImportScriptTpl.Execute(&ctrImport, containerd.ImportImage(args.parseImportImageFlags(cfg), "-"))
+	if err != nil {
+		return err
+	}
+	imports := make([]gosh.Commander, 0, len(pods.Items))
 	for _, archive := range archives {
 		for _, pod := range pods.Items {
 			kubectlExec := kubectl.Exec(
 				&cfg.KinkConfig.Kubectl, &cfg.KinkConfig.Kubernetes,
 				pod.Name,
 				true, false,
-				containerd.ImportImage(args.parseImportImageFlags(cfg), "-")...,
+				"sh", "-c", ctrImport.String(),
 			)
 			cmd := gosh.
 				Command(kubectlExec...).
@@ -71,7 +77,6 @@ func loadArchives(ctx context.Context, args *loadArgsT, cfg *resolvedConfigT, ar
 			imports = append(imports, cmd)
 		}
 	}
-	// TODO: Replace this with a goroutine that copies from one docker save to each kubectl exec
 	err = importParallel(args, imports...)
 	if err != nil {
 		return err
