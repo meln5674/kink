@@ -6,6 +6,7 @@ SHELL := /bin/bash
 
 
 GO_FILES := $(shell find cmd/ -name '*.go') $(shell find pkg/ -name '*.go') go.mod go.sum
+HELM_FILES := $(shell find helm/kink/) 
 
 bin/kink: $(GO_FILES)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o bin/kink main.go
@@ -15,6 +16,35 @@ bin/kink.dev: $(GO_FILES)
 
 bin/kink.cover: $(GO_FILES)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build --cover -a -tags netgo -ldflags '-w -extldflags "-static"' -o bin/kink.cover main.go
+
+ifndef CHART_VERSION
+RAW_CHART_VERSION=$(shell helm show chart ./helm/kink/ | grep -E '^version: ' | awk '{ print $$2 }')
+ifdef CHART_GIT_SHA
+CHART_VERSION=$(RAW_CHART_VERSION)-$(CHART_GIT_SHA)
+else
+CHART_VERSION=$(RAW_CHART_VERSION)
+endif
+endif
+
+ifndef CHART_APP_VERSION
+RAW_CHART_VERSION=$(shell helm show chart ./helm/kink/ | grep -E '^version: ' | awk '{ print $$2 }')
+ifdef CHART_GIT_SHA
+CHART_APP_VERSION=sha-$(CHART_GIT_SHA)
+else
+CHART_APP_VERSION=v$(RAW_CHART_VERSION)
+endif
+endif
+
+helm/kink/Chart.lock: $(HELM) helm/kink/Chart.yaml
+	$(HELM) dependency update helm/kink/
+	touch helm/kink/Chart.lock
+
+bin/charts/kink-$(CHART_VERSION).tgz: $(HELM) $(HELM_FILES) helm/kink/Chart.lock
+	mkdir -p bin/charts
+	$(HELM) package ./helm/kink/ --version '$(CHART_VERSION)' --app-version '$(CHART_APP_VERSION)' --destination ./bin/charts/
+
+.PHONY: chart
+chart: bin/charts/kink-${CHART_VERSION}.tgz
 
 vet:
 	go vet ./cmd/... ./pkg/... ./e2e/...
