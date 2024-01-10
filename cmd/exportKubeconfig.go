@@ -242,7 +242,7 @@ func buildAndWriteCompleteKubeconfig(ctx context.Context, cfg *resolvedConfigT, 
 		return err
 	}
 
-	klog.V(4).Infof("Saving exported kubeconfig to %#v", exportedKubeconfig)
+	klog.V(4).Infof("Saving exported kubeconfig to %s", path)
 
 	return saveKubeconfig(w, exportedKubeconfig)
 }
