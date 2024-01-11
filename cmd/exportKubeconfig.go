@@ -55,7 +55,9 @@ type exportKubeconfigCommonArgsT struct {
 }
 
 func (exportKubeconfigCommonArgsT) Defaults() exportKubeconfigCommonArgsT {
-	return exportKubeconfigCommonArgsT{}
+	return exportKubeconfigCommonArgsT{
+		PortForward: portForwardArgsT{}.Defaults(),
+	}
 }
 
 type exportKubeconfigArgsT struct {
