@@ -52,7 +52,7 @@ jobs:
 
           GIT_TAG="${{ steps.tagName.outputs.tag }}"
           if [ -n "${GIT_TAG}" ]; then
-            ARGS=( CHART_VERISON="${GIT_TAG}" CHART_APP_VERSION="${GIT_TAG}" )
+            ARGS=( CHART_VERSION="${GIT_TAG}" CHART_APP_VERSION="${GIT_TAG}" )
           else
             ARGS=( CHART_APP_VERSION="sha-${GITHUB_SHA}" CHART_GIT_SHA="${GITHUB_SHA}" )
           fi
