@@ -67,8 +67,8 @@ type initRegistriesArgsT struct {
 	TemplatePath        string   `rflag:"usage=Path containing template for registries.yaml"`
 	Path                string   `rflag:"usage=Path to write instantiated template for registries.yaml"`
 	CredentialsRootPath string   `rflag:"usage=Path containing credential subdirs for registries"`
-	TLSMounted          []string `rflag:"usage=List of registries that have mounted tls,slice-type=array"`
-	AuthMounted         []string `rflag:"usage=List of registries that have mounted auth,slice-type=array"`
+	TLSMounted          []string `rflag:"usage=List of registries that have mounted tls,slice-type=slice"`
+	AuthMounted         []string `rflag:"usage=List of registries that have mounted auth,slice-type=slice"`
 }
 
 type initKubeletArgsT struct {
