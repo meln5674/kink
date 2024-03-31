@@ -143,6 +143,15 @@ func resetEtcdMember(ctx context.Context, args *initEtcdArgsT, pod *initPodArgsT
 	}
 
 	memberName, err := os.ReadFile(args.MemberNamePath)
+	if errors.Is(err, os.ErrNotExist) {
+		klog.InfoS("Etcd file doesn't exist, assuming first run, not resetting member", "path", args.MemberNamePath)
+		return nil
+	}
+	if err != nil {
+		return errors.Wrapf(err, "Failed to open etcd config at path %s", args.ConfigPath)
+	}
+
+	klog.InfoS("Resetting etcd member", "member", memberName)
 
 	yc := config.ServerTrust
 	tlscfg := tls.Config{
