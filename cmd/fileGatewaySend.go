@@ -174,7 +174,7 @@ func sendToFileGateway(ctx context.Context, args *fileGatewaySendArgsT, cfg *res
 		panic(fmt.Sprintf("BUG: Generated kubeconfig had invalid URL %s", tarURLString))
 	}
 
-	tarURL.Path = filepath.Join(tarURL.Path, args.Dest)
+	tarURL.Path = filepath.ToSlash(filepath.Join(tarURL.Path, args.Dest))
 	tarURL.RawQuery = query.Encode()
 
 	client, err := k8srest.HTTPClientFor(tmpRestConfig)
@@ -263,7 +263,7 @@ func addToArchive(args *fileGatewaySendArgsT, archive *tar.Writer, path string, 
 				return err
 			}
 			// TODO: Replace this recursion with a queue
-			err = addToArchive(args, archive, filepath.Join(path, entry.Name()), info)
+			err = addToArchive(args, archive, filepath.ToSlash(filepath.Join(path, entry.Name())), info)
 			if err != nil {
 				return err
 			}
