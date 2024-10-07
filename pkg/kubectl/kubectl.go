@@ -13,9 +13,7 @@ import (
 	"github.com/meln5674/kink/pkg/flags"
 )
 
-var (
-	recommendedFlags = clientcmd.RecommendedConfigOverrideFlags("")
-)
+var recommendedFlags = clientcmd.RecommendedConfigOverrideFlags("")
 
 type KubectlFlags struct {
 	Command []string
@@ -220,7 +218,7 @@ func (k *KubeFlags) CustomFlags(flagInfo *clientcmd.ConfigOverrideFlags, kubecon
 		"",
 	)
 	// Special case, both empty string and zero mean no timeout
-	var timeout = k.ConfigOverrides.Timeout
+	timeout := k.ConfigOverrides.Timeout
 	if timeout == "" {
 		timeout = "0"
 	}
@@ -336,6 +334,13 @@ func ConfigSetCluster(k *KubectlFlags, ku *KubeFlags, cluster string, data map[s
 func Delete(k *KubectlFlags, ku *KubeFlags, kind string, flags ...string) []string {
 	args := make([]string, 0, 2+len(flags))
 	args = append(args, "delete", kind)
+	args = append(args, flags...)
+	return Kubectl(k, ku, args...)
+}
+
+func RolloutStatus(k *KubectlFlags, ku *KubeFlags, kind, name string, flags ...string) []string {
+	args := make([]string, 0, 4+len(flags))
+	args = append(args, "rollout", "status", kind, name)
 	args = append(args, flags...)
 	return Kubectl(k, ku, args...)
 }

@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/klog/v2"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/meln5674/rflag"
 
 	"github.com/meln5674/kink/pkg/helm"
+	"github.com/meln5674/kink/pkg/kubectl"
 )
 
 // createClusterCmd represents the create cluster command
@@ -72,9 +74,25 @@ func createCluster(ctx context.Context, args *createClusterArgsT, cfg *resolvedC
 	if err != nil {
 		return err
 	}
-	klog.Info("Deployed chart, your cluster is now ready to use")
-	if args.ExportKubeconfigArgs.KubeconfigToExportPath != "" {
-		exportKubeconfigToPath(ctx, &args.ExportKubeconfigArgs, cfg)
+	klog.Info("Deployed chart, waiting for controlplane to be healthy")
+
+	controlplaneRollout := kubectl.RolloutStatus(&cfg.KinkConfig.Kubectl, &cfg.KinkConfig.Kubernetes, "statefulset", cfg.ReleaseConfig.ControlplaneFullname)
+	err = gosh.
+		Command(controlplaneRollout...).
+		WithContext(ctx).
+		WithStreams(gosh.ForwardOutErr).
+		Run()
+	if err != nil {
+		return err
+	}
+
+	klog.Info("Controlplane is healthy, your cluster is now ready to use")
+	if args.ExportKubeconfigArgs.KubeconfigToExportPath == "" {
+		return nil
+	}
+	err = exportKubeconfigToPath(ctx, &args.ExportKubeconfigArgs, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to export kubeconfig: %w", err)
 	}
 	return nil
 }
